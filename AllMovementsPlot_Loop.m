@@ -1,4 +1,4 @@
-%% BRUNO - plot of all the movements
+%% BRUNO - plot of all the movements - Bruno Borghi
 % Load the .mat file of the experiment visit you want to read and look and
 % then run this program. Choose the index range in the for loop, to
 % identify the trials you want to plot

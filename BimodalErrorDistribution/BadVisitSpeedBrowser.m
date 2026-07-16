@@ -2,7 +2,7 @@
 %
 %  Inspired by BimodalExtentErrorDistributions.m (same disk-scan + interactive,
 %  arrow-key visit browser), but purpose-built for MANUALLY grading each visit's
-%  speed profiles.
+%  speed profiles..
 %
 %  For every patient/visit it loads from disk (no global Data) and, for the
 %  intermittent-exposure practiced-direction trials only —

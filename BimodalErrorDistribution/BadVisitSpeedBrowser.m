@@ -339,7 +339,7 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
                     col, speedAlpha, speedWidth, showLaunchBlack);
 
             % Minimum-jerk template (positive-speed portion only), starting at t = 0.
-            plot(ax(d), mjTimePlot, mjVelPlot, '-', 'Color', [0.5 0 0.125 0.85], 'LineWidth', speedWidth+15);
+            plot(ax(d), mjTimePlot, mjVelPlot, '-', 'Color', [0.5 0 0.125 0.85], 'LineWidth', speedWidth+3);
 
             grid(ax(d), 'off'); box(ax(d), 'off');
             set(ax(d), 'LineWidth', 1.5, 'FontSize', 12);

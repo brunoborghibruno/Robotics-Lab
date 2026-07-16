@@ -1,4 +1,4 @@
-%% Bad-Visit Speed Browser
+%% Bad-Visit Speed Browser - Bruno Borghi
 %
 %  Inspired by BimodalExtentErrorDistributions.m (same disk-scan + interactive,
 %  arrow-key visit browser), but purpose-built for MANUALLY grading each visit's
@@ -13,6 +13,15 @@
 %  (these hold DIRECT indices into that visit's Data cell array, not
 %  MovementNumbers) — it overlays EVERY trial's speed profile, one on top of
 %  another (launch onset aligned to t = 0), in four axes (one per direction).
+%
+%  Next to each direction's speed axis, on the right, a companion axis shows the
+%  same trials' FORWARD-VELOCITY ("compensation") profile — the velocity
+%  component projected onto the movement/target direction, exactly as
+%  VelocityCompensationAnalysis.m computes it. It is signed, so a dip below zero
+%  means the hand moved BACK toward the start. The eight axes form a 2x4 grid:
+%  each 2x2 direction cell is split into [speed | forward-velocity]. This lets
+%  you weigh both the speed profile and any backward-movement compensation when
+%  grading a visit good/bad.
 %
 %  Interactive controls:Firs
 %    - "< Prev" / "Next >" buttons OR left/right arrow keys step through every
@@ -76,7 +85,8 @@ saveFile = fullfile(scriptDir, 'badVisitsList.mat');   % where the grading is st
 global BADVISIT_SPEED_CACHE %#ok<GVMIS>
 cacheKey = struct('subjectIDs', {subjectIDs});
 if USE_CACHE && ~isempty(BADVISIT_SPEED_CACHE) && isfield(BADVISIT_SPEED_CACHE, 'visits') ...
-        && isequal(BADVISIT_SPEED_CACHE.key, cacheKey)
+        && isequal(BADVISIT_SPEED_CACHE.key, cacheKey) ...
+        && (isempty(BADVISIT_SPEED_CACHE.visits) || isfield(BADVISIT_SPEED_CACHE.visits, 'velLists'))
     Scan = BADVISIT_SPEED_CACHE;
     fprintf('Using cached scan of %d visits (no reload). Set USE_CACHE=false to force a reload.\n', Scan.nVisits);
 else
@@ -146,6 +156,8 @@ function Scan = CollectAllVisits(basePath, subjectIDs)
             rec.visitType       = DetectVisitType(Data);
             rec.speedLists      = {{}, {}, {}, {}};      % {d} = cell of [time, speed]
             rec.speedLaunchList = {{}, {}, {}, {}};      % {d} = cell of logical launch masks
+            rec.velLists        = {{}, {}, {}, {}};      % {d} = cell of [time, forwardVel] (compensation view)
+            rec.velLaunchList   = {{}, {}, {}, {}};      % {d} = cell of logical launch masks (velocity)
 
             for dCount = 1:4
                 idxList = GetDirectionIndices(SpecialMovementIndex, dirFields{dCount});
@@ -156,6 +168,13 @@ function Scan = CollectAllVisits(basePath, subjectIDs)
                     if ~isempty(spTraj)
                         rec.speedLists{dCount}{end+1}      = spTraj;       %#ok<AGROW>
                         rec.speedLaunchList{dCount}{end+1} = spLaunchMask; %#ok<AGROW>
+                    end
+                    % Forward-velocity (target-direction) trajectory for the same
+                    % trial — the VelocityCompensationAnalysis.m signal.
+                    [vfTraj, vfLaunchMask] = CollectForwardVelocityTrajectory(Data{idx});
+                    if ~isempty(vfTraj)
+                        rec.velLists{dCount}{end+1}      = vfTraj;       %#ok<AGROW>
+                        rec.velLaunchList{dCount}{end+1} = vfLaunchMask; %#ok<AGROW>
                     end
                 end
             end
@@ -262,12 +281,39 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
     fig = figure('Name', 'Bad-visit speed browser', 'NumberTitle', 'off', 'Color', 'w');
     fig.WindowState = 'maximized';
 
-    ax = gobjects(1, 4);
+    % Layout: each direction gets a PAIR of axes side by side in a 2x4 grid —
+    % the speed profile (left) and, right next to it, the forward-velocity
+    % "compensation" profile (right). The 2x2 arrangement of the four directions
+    % is preserved; each cell is split speed | velocity. Positions are set
+    % EXPLICITLY (not via subplot defaults) so the eight axes fill the page with
+    % minimal white borders.
+    xL = 0.040; xR = 0.996;    % left / right figure margins
+    yB = 0.085; yT = 0.930;    % bottom (above control strip) / top (below sgtitle)
+    hGap = 0.038;              % horizontal gap between the 4 columns
+    vGap = 0.100;              % vertical gap between the 2 rows
+    nColL = 4; nRowL = 2;
+    axW = (xR - xL - (nColL-1)*hGap) / nColL;
+    axH = (yT - yB - (nRowL-1)*vGap) / nRowL;
+
+    VEL_SHRINK = 0.85;         % velocity axes drawn a little smaller than the speed ones
+    ax    = gobjects(1, 4);    % speed axes
+    axVel = gobjects(1, 4);    % forward-velocity (compensation) axes
     for d = 1:4
-        ax(d) = subplot(2, 2, d);
-        p = get(ax(d), 'Position');
-        p(2) = p(2) + 0.05*(1 - p(2));   % nudge axes up to clear the control strip
-        set(ax(d), 'Position', p);
+        rowIx    = (d > 2) + 1;              % 1 for d=1,2 ; 2 for d=3,4
+        speedCol = mod(d-1, 2)*2 + 1;        % 1 or 3 -> speed axis column
+        yRow     = yT - rowIx*axH - (rowIx-1)*vGap;
+
+        xSpeed = xL + (speedCol-1)*(axW + hGap);
+        ax(d)  = axes('Parent', fig, 'Position', [xSpeed, yRow, axW, axH]);
+
+        % Velocity axis: same slot to the right, shrunk a touch (left edge kept
+        % next to the speed axis, vertically centred on the slot).
+        xVel = xL + speedCol*(axW + hGap);
+        pv   = [xVel, yRow, axW, axH];
+        pv(2) = pv(2) + 0.5*(1 - VEL_SHRINK)*pv(4);
+        pv(3) = VEL_SHRINK*pv(3);
+        pv(4) = VEL_SHRINK*pv(4);
+        axVel(d) = axes('Parent', fig, 'Position', pv);
     end
 
     k = 1;   % current visit index (shared with the nested callbacks)
@@ -330,10 +376,26 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
         maxSpeed = max(maxSpeed, max([mjVelPlot; 0]));
         if ~isfinite(maxSpeed) || maxSpeed <= 0, maxSpeed = 1; end
 
+        % Common y-axis for the forward-velocity axes: signed, so keep both the
+        % lowest (most backward) and highest value across all four directions.
+        velMin = 0; velMax = 0;
         for d = 1:4
+            for i = 1:numel(rec.velLists{d})
+                velMin = min(velMin, min(rec.velLists{d}{i}(:,2)));
+                velMax = max(velMax, max(rec.velLists{d}{i}(:,2)));
+            end
+        end
+        if ~(isfinite(velMin) && isfinite(velMax)) || velMax <= velMin
+            velMin = -1; velMax = 1;
+        end
+        velPad = 0.05*(velMax - velMin);
+
+        for d = 1:4
+            col = PracticedColor(d, :);
+
+            % ── Speed profile (left axis of the pair) ────────────────────────
             cla(ax(d), 'reset');
             hold(ax(d), 'on');
-            col = PracticedColor(d, :);
 
             n = PlotSpeedOverlay(ax(d), rec.speedLists{d}, rec.speedLaunchList{d}, ...
                     col, speedAlpha, speedWidth, showLaunchBlack);
@@ -342,12 +404,34 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
             plot(ax(d), mjTimePlot, mjVelPlot, '-', 'Color', [0.5 0 0.125 0.85], 'LineWidth', speedWidth+3);
 
             grid(ax(d), 'off'); box(ax(d), 'off');
-            set(ax(d), 'LineWidth', 1.5, 'FontSize', 12);
-            ylim(ax(d), [0, 1.05*maxSpeed]);   % same y-scale on all four axes
-            xlabel(ax(d), 'Time (s)', 'FontSize', 14, 'FontWeight', 'bold');
-            ylabel(ax(d), 'Speed (m/s)', 'FontSize', 14, 'FontWeight', 'bold');
+            set(ax(d), 'LineWidth', 3, 'FontSize', 12);   % speed axes ~twice as thick
+            ylim(ax(d), [0, 1.05*maxSpeed]);   % same y-scale on all four speed axes
+            xlabel(ax(d), 'Time (s)', 'FontSize', 13, 'FontWeight', 'bold');
+            ylabel(ax(d), 'Speed (m/s)', 'FontSize', 13, 'FontWeight', 'bold');
             title(ax(d), sprintf('%s  (n = %d)', dirLabels{d}, n), ...
-                'FontSize', 14, 'FontWeight', 'bold', 'Color', col);
+                'FontSize', 13, 'FontWeight', 'bold', 'Color', col);
+
+            % ── Forward-velocity "compensation" profile (right axis) ─────────
+            cla(axVel(d), 'reset');
+            hold(axVel(d), 'on');
+
+            % Zero reference: below it the hand is moving back toward the start.
+            yline(axVel(d), 0, ':', 'Color', [0.6 0.6 0.6], 'LineWidth', 1, ...
+                'HandleVisibility', 'off');
+
+            PlotSpeedOverlay(axVel(d), rec.velLists{d}, rec.velLaunchList{d}, ...
+                    col, speedAlpha, speedWidth, showLaunchBlack);
+
+            grid(axVel(d), 'off'); box(axVel(d), 'off');
+            % Grey axis rulers/ticks (rulers don't support alpha; [0.7 0.7 0.7]
+            % is what 70%-transparent black axes would look like on white).
+            set(axVel(d), 'LineWidth', 1.5, 'FontSize', 12, ...
+                'XColor', [0.7 0.7 0.7], 'YColor', [0.7 0.7 0.7]);
+            ylim(axVel(d), [velMin - velPad, velMax + velPad]);   % shared, signed
+            xlabel(axVel(d), 'Time (s)', 'FontSize', 13, 'FontWeight', 'bold');
+            ylabel(axVel(d), 'Forward vel (m/s)', 'FontSize', 13, 'FontWeight', 'bold');
+            title(axVel(d), 'Velocity component in target direction', ...
+                'FontSize', 11, 'FontWeight', 'bold', 'Color', col);
         end
 
         % Sync the checkbox to the stored value for this visit.
@@ -461,6 +545,75 @@ function [traj, launchMask] = CollectSpeedTrajectory(d)
         launchMask(li) = true;
     end
     traj = [time, speed];
+end
+
+
+function [traj, launchMask] = CollectForwardVelocityTrajectory(d)
+% Returns [time, forwardVel] for one trial (launch onset shifted to t = 0) and a
+% logical launch-window mask. traj is [] if unusable. This is the
+% VelocityCompensationAnalysis.m signal: forwardVel = GlobalVelocity projected
+% onto the movement-direction unit vector (velocity toward the intended target;
+% NEGATIVE = hand moving back toward the start).
+
+    traj       = [];
+    launchMask = [];
+    if ~isfield(d, 'GlobalVelocity') || isempty(d.GlobalVelocity), return; end
+    if ~isfield(d, 'SampleTime')     || isempty(d.SampleTime),     return; end
+
+    fwd = GetMovementDirectionVector(d);   % 1x3 unit vector (global frame)
+    if isempty(fwd), return; end
+
+    V = d.GlobalVelocity;
+    if size(V, 2) ~= 3
+        if size(V, 1) == 3, V = V'; else, return; end   % coerce to N x 3
+    end
+
+    forwardVel = V * fwd(:);                 % N×1 projection onto movement direction [m/s]
+    time       = ConstructTimeFromSampleTime(d.SampleTime);
+    time       = time(:);
+
+    launchIndex = GetLaunchWindow(d);
+    hasLaunch   = ~(isscalar(launchIndex) && launchIndex == 0) ...
+                  && launchIndex(1) >= 1 && launchIndex(1) <= numel(time);
+    if hasLaunch
+        time = time - time(launchIndex(1));   % shift so launch onset is at t = 0
+    end
+
+    n = min(numel(time), numel(forwardVel));
+    if n < 2, return; end
+    time       = time(1:n);
+    forwardVel = forwardVel(1:n);
+
+    launchMask = false(n, 1);
+    if hasLaunch
+        li = launchIndex(launchIndex >= 1 & launchIndex <= n);
+        launchMask(li) = true;
+    end
+    traj = [time, forwardVel];
+end
+
+
+function fwd = GetMovementDirectionVector(d)
+% Unit vector (1x3, global/Unity frame) pointing along the intended movement
+% direction for this trial. Primary source: the per-trial RotationMatrix, whose
+% first row is the local +x axis (= movement direction) in global coordinates.
+% Falls back to the canonical direction table keyed by MovementDirection (0..7).
+
+    fwd = [];
+    if isfield(d, 'RotationMatrix') && ~isempty(d.RotationMatrix) && isequal(size(d.RotationMatrix), [3 3])
+        fwd = d.RotationMatrix(1, :);
+    elseif isfield(d, 'MovementDirection') && ~isempty(d.MovementDirection)
+        mdir = d.MovementDirection;
+        [d0,d1,d2,d3,d4,d5,d6,d7] = GetDirectionsAndMatrixes('numeric');
+        table = [d0'; d1'; d2'; d3'; d4'; d5'; d6'; d7'];
+        if mdir >= 0 && mdir <= 7
+            fwd = table(mdir + 1, :);
+        end
+    end
+    if ~isempty(fwd)
+        nrm = norm(fwd);
+        if nrm > 0, fwd = fwd / nrm; end   % ensure a unit vector -> true component [m/s]
+    end
 end
 
 

@@ -14,14 +14,17 @@
 %  MovementNumbers) — it overlays EVERY trial's speed profile, one on top of
 %  another (launch onset aligned to t = 0), in four axes (one per direction).
 %
-%  Next to each direction's speed axis, on the right, a companion axis shows the
-%  same trials' FORWARD-VELOCITY ("compensation") profile — the velocity
-%  component projected onto the movement/target direction, exactly as
-%  VelocityCompensationAnalysis.m computes it. It is signed, so a dip below zero
-%  means the hand moved BACK toward the start. The eight axes form a 2x4 grid:
-%  each 2x2 direction cell is split into [speed | forward-velocity]. This lets
-%  you weigh both the speed profile and any backward-movement compensation when
-%  grading a visit good/bad.
+%  Next to each direction's (big) speed axis, on the right, a stacked PAIR of
+%  smaller companion axes shows the same trials':
+%    - top    : FORWARD-VELOCITY ("compensation") profile — the velocity
+%               component projected onto the movement/target direction, exactly
+%               as VelocityCompensationAnalysis.m computes it. It is signed, so a
+%               dip below zero means the hand moved BACK toward the start.
+%    - bottom : EXTENT ERROR profile — the same trials' ExtentError vs. time.
+%  The four directions keep their 2x2 arrangement; each direction cell is laid
+%  out as [ big speed  |  velocity (top) / extent error (bottom) ]. This lets you
+%  weigh the speed profile, any backward-movement compensation, and the extent
+%  error together when grading a visit good/bad.
 %
 %  Interactive controls:Firs
 %    - "< Prev" / "Next >" buttons OR left/right arrow keys step through every
@@ -86,7 +89,7 @@ global BADVISIT_SPEED_CACHE %#ok<GVMIS>
 cacheKey = struct('subjectIDs', {subjectIDs});
 if USE_CACHE && ~isempty(BADVISIT_SPEED_CACHE) && isfield(BADVISIT_SPEED_CACHE, 'visits') ...
         && isequal(BADVISIT_SPEED_CACHE.key, cacheKey) ...
-        && (isempty(BADVISIT_SPEED_CACHE.visits) || isfield(BADVISIT_SPEED_CACHE.visits, 'velLists'))
+        && (isempty(BADVISIT_SPEED_CACHE.visits) || isfield(BADVISIT_SPEED_CACHE.visits, 'errLists'))
     Scan = BADVISIT_SPEED_CACHE;
     fprintf('Using cached scan of %d visits (no reload). Set USE_CACHE=false to force a reload.\n', Scan.nVisits);
 else
@@ -158,6 +161,8 @@ function Scan = CollectAllVisits(basePath, subjectIDs)
             rec.speedLaunchList = {{}, {}, {}, {}};      % {d} = cell of logical launch masks
             rec.velLists        = {{}, {}, {}, {}};      % {d} = cell of [time, forwardVel] (compensation view)
             rec.velLaunchList   = {{}, {}, {}, {}};      % {d} = cell of logical launch masks (velocity)
+            rec.errLists        = {{}, {}, {}, {}};      % {d} = cell of [time, extentError]
+            rec.errLaunchList   = {{}, {}, {}, {}};      % {d} = cell of logical launch masks (extent error)
 
             for dCount = 1:4
                 idxList = GetDirectionIndices(SpecialMovementIndex, dirFields{dCount});
@@ -175,6 +180,12 @@ function Scan = CollectAllVisits(basePath, subjectIDs)
                     if ~isempty(vfTraj)
                         rec.velLists{dCount}{end+1}      = vfTraj;       %#ok<AGROW>
                         rec.velLaunchList{dCount}{end+1} = vfLaunchMask; %#ok<AGROW>
+                    end
+                    % ExtentError vs. time for the same trial (launch-aligned).
+                    [eeTraj, eeLaunchMask] = CollectExtentErrorTrajectory(Data{idx});
+                    if ~isempty(eeTraj)
+                        rec.errLists{dCount}{end+1}      = eeTraj;       %#ok<AGROW>
+                        rec.errLaunchList{dCount}{end+1} = eeLaunchMask; %#ok<AGROW>
                     end
                 end
             end
@@ -268,52 +279,58 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
     PracticedColor = EquiDistantColorGenerator(4, 9742);
     dirLabels = {'Direction 0','Direction 1','Direction 2','Direction 3'};
 
-    % ── Minimum-jerk speed template (same as InspectIndividualTrial, but here it
-    %    simply starts at t = 0 rather than being aligned to the peak of the real
-    %    speed). Only its positive-speed portion is plotted, in red, on every axis.
+    % ── Minimum-jerk speed template (same as InspectIndividualTrial). Its time
+    %    axis is shifted so the template STARTS at t = -0.1 s (rather than 0), i.e.
+    %    the launch onset falls 0.1 s into the template. Only its positive-speed
+    %    portion is plotted, in red, on every axis.
+    MJ_START_TIME   = -0.1;   % x-axis time at which the red template begins [s]
     mjTime          = (0:0.01:mjDesiredTime)';
     [~, mjVelocity] = MinimumJerkTrajectory(mjDesiredTime, mjDesiredDistance, mjTime);
     mjKeep          = mjVelocity > 0;
-    mjTimePlot      = mjTime(mjKeep);
+    mjTimePlot      = mjTime(mjKeep) + MJ_START_TIME;   % shift start to MJ_START_TIME
     mjVelPlot       = mjVelocity(mjKeep);
 
     % ── Figure + axes + navigation controls ──────────────────────────────────
     fig = figure('Name', 'Bad-visit speed browser', 'NumberTitle', 'off', 'Color', 'w');
     fig.WindowState = 'maximized';
 
-    % Layout: each direction gets a PAIR of axes side by side in a 2x4 grid —
-    % the speed profile (left) and, right next to it, the forward-velocity
-    % "compensation" profile (right). The 2x2 arrangement of the four directions
-    % is preserved; each cell is split speed | velocity. Positions are set
-    % EXPLICITLY (not via subplot defaults) so the eight axes fill the page with
-    % minimal white borders.
-    xL = 0.040; xR = 0.996;    % left / right figure margins
+    % Layout: the four directions keep a 2x2 arrangement. Each direction cell is
+    % split into a BIG speed axis on the left and, on the right, a stacked pair of
+    % SMALLER axes — forward-velocity ("compensation") on top and extent error on
+    % the bottom. Positions are set EXPLICITLY (not via subplot defaults) so the
+    % twelve axes fill the page with minimal white borders.
+    xL = 0.045; xR = 0.995;    % left / right figure margins
     yB = 0.085; yT = 0.930;    % bottom (above control strip) / top (below sgtitle)
-    hGap = 0.038;              % horizontal gap between the 4 columns
-    vGap = 0.100;              % vertical gap between the 2 rows
-    nColL = 4; nRowL = 2;
-    axW = (xR - xL - (nColL-1)*hGap) / nColL;
-    axH = (yT - yB - (nRowL-1)*vGap) / nRowL;
+    colGap = 0.070;            % horizontal gap between the 2 direction columns
+    rowGap = 0.105;            % vertical gap between the 2 direction rows
+    cellW  = (xR - xL - colGap) / 2;      % width  of one direction cell
+    cellH  = (yT - yB - rowGap) / 2;      % height of one direction cell
 
-    VEL_SHRINK = 0.85;         % velocity axes drawn a little smaller than the speed ones
-    ax    = gobjects(1, 4);    % speed axes
-    axVel = gobjects(1, 4);    % forward-velocity (compensation) axes
+    SPEED_FRAC = 0.60;         % fraction of the cell width taken by the big speed axis
+    innerGap   = 0.030;        % gap between the speed axis and the small-axes column
+    smallVGap  = 0.090;        % vertical gap between the stacked velocity / extent axes
+    speedW = SPEED_FRAC*cellW - 0.5*innerGap;
+    smallW = (1 - SPEED_FRAC)*cellW - 0.5*innerGap;
+    smallH = (cellH - smallVGap) / 2;
+
+    ax    = gobjects(1, 4);    % big speed axes
+    axVel = gobjects(1, 4);    % forward-velocity (compensation) axes (top-right, small)
+    axErr = gobjects(1, 4);    % extent-error axes (bottom-right, small)
     for d = 1:4
-        rowIx    = (d > 2) + 1;              % 1 for d=1,2 ; 2 for d=3,4
-        speedCol = mod(d-1, 2)*2 + 1;        % 1 or 3 -> speed axis column
-        yRow     = yT - rowIx*axH - (rowIx-1)*vGap;
+        dCol  = mod(d-1, 2);                 % 0 = left column, 1 = right column
+        dRow  = double(d > 2);               % 0 = top row,    1 = bottom row
+        cellX = xL + dCol*(cellW + colGap);          % left edge of this direction cell
+        cellY = yT - (dRow+1)*cellH - dRow*rowGap;   % bottom edge of this direction cell
 
-        xSpeed = xL + (speedCol-1)*(axW + hGap);
-        ax(d)  = axes('Parent', fig, 'Position', [xSpeed, yRow, axW, axH]);
+        % Big speed axis: left portion, full cell height.
+        ax(d) = axes('Parent', fig, 'Position', [cellX, cellY, speedW, cellH]);
 
-        % Velocity axis: same slot to the right, shrunk a touch (left edge kept
-        % next to the speed axis, vertically centred on the slot).
-        xVel = xL + speedCol*(axW + hGap);
-        pv   = [xVel, yRow, axW, axH];
-        pv(2) = pv(2) + 0.5*(1 - VEL_SHRINK)*pv(4);
-        pv(3) = VEL_SHRINK*pv(3);
-        pv(4) = VEL_SHRINK*pv(4);
-        axVel(d) = axes('Parent', fig, 'Position', pv);
+        % Small stacked axes: right portion, split top (velocity) / bottom (extent).
+        smallX = cellX + speedW + innerGap;
+        axVel(d) = axes('Parent', fig, ...
+            'Position', [smallX, cellY + smallH + smallVGap, smallW, smallH]);
+        axErr(d) = axes('Parent', fig, ...
+            'Position', [smallX, cellY, smallW, smallH]);
     end
 
     k = 1;   % current visit index (shared with the nested callbacks)
@@ -390,6 +407,19 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
         end
         velPad = 0.05*(velMax - velMin);
 
+        % Common y-axis for the extent-error axes: signed, shared across directions.
+        errMin = 0; errMax = 0;
+        for d = 1:4
+            for i = 1:numel(rec.errLists{d})
+                errMin = min(errMin, min(rec.errLists{d}{i}(:,2)));
+                errMax = max(errMax, max(rec.errLists{d}{i}(:,2)));
+            end
+        end
+        if ~(isfinite(errMin) && isfinite(errMax)) || errMax <= errMin
+            errMin = -1; errMax = 1;
+        end
+        errPad = 0.05*(errMax - errMin);
+
         for d = 1:4
             col = PracticedColor(d, :);
 
@@ -411,7 +441,7 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
             title(ax(d), sprintf('%s  (n = %d)', dirLabels{d}, n), ...
                 'FontSize', 13, 'FontWeight', 'bold', 'Color', col);
 
-            % ── Forward-velocity "compensation" profile (right axis) ─────────
+            % ── Forward-velocity "compensation" profile (top-right, small) ───
             cla(axVel(d), 'reset');
             hold(axVel(d), 'on');
 
@@ -425,13 +455,32 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
             grid(axVel(d), 'off'); box(axVel(d), 'off');
             % Grey axis rulers/ticks (rulers don't support alpha; [0.7 0.7 0.7]
             % is what 70%-transparent black axes would look like on white).
-            set(axVel(d), 'LineWidth', 1.5, 'FontSize', 12, ...
+            set(axVel(d), 'LineWidth', 1.5, 'FontSize', 10, ...
                 'XColor', [0.7 0.7 0.7], 'YColor', [0.7 0.7 0.7]);
             ylim(axVel(d), [velMin - velPad, velMax + velPad]);   % shared, signed
-            xlabel(axVel(d), 'Time (s)', 'FontSize', 13, 'FontWeight', 'bold');
-            ylabel(axVel(d), 'Forward vel (m/s)', 'FontSize', 13, 'FontWeight', 'bold');
-            title(axVel(d), 'Velocity component in target direction', ...
-                'FontSize', 11, 'FontWeight', 'bold', 'Color', col);
+            ylabel(axVel(d), 'Forward vel (m/s)', 'FontSize', 10, 'FontWeight', 'bold');
+            title(axVel(d), 'Velocity in target direction', ...
+                'FontSize', 10, 'FontWeight', 'bold', 'Color', col);
+
+            % ── Extent-error profile (bottom-right, small) ───────────────────
+            cla(axErr(d), 'reset');
+            hold(axErr(d), 'on');
+
+            % Zero reference: the target extent (no over/undershoot).
+            yline(axErr(d), 0, ':', 'Color', [0.6 0.6 0.6], 'LineWidth', 1, ...
+                'HandleVisibility', 'off');
+
+            PlotSpeedOverlay(axErr(d), rec.errLists{d}, rec.errLaunchList{d}, ...
+                    col, speedAlpha, speedWidth, showLaunchBlack);
+
+            grid(axErr(d), 'off'); box(axErr(d), 'off');
+            set(axErr(d), 'LineWidth', 1.5, 'FontSize', 10, ...
+                'XColor', [0.7 0.7 0.7], 'YColor', [0.7 0.7 0.7]);
+            ylim(axErr(d), [errMin - errPad, errMax + errPad]);   % shared, signed
+            xlabel(axErr(d), 'Time (s)', 'FontSize', 10, 'FontWeight', 'bold');
+            ylabel(axErr(d), 'Extent error (m)', 'FontSize', 10, 'FontWeight', 'bold');
+            title(axErr(d), 'Extent error', ...
+                'FontSize', 10, 'FontWeight', 'bold', 'Color', col);
         end
 
         % Sync the checkbox to the stored value for this visit.
@@ -590,6 +639,42 @@ function [traj, launchMask] = CollectForwardVelocityTrajectory(d)
         launchMask(li) = true;
     end
     traj = [time, forwardVel];
+end
+
+
+function [traj, launchMask] = CollectExtentErrorTrajectory(d)
+% Returns [time, extentError] for one trial (launch onset shifted to t = 0) and a
+% logical launch-window mask. traj is [] if unusable. ExtentError is the signed
+% error along the movement extent, as used by BimodalExtentErrorDistributions.m /
+% PrematureOnsetVsHighError.m (kept in native units, m).
+
+    traj       = [];
+    launchMask = [];
+    if ~isfield(d, 'ExtentError') || isempty(d.ExtentError), return; end
+    if ~isfield(d, 'SampleTime')  || isempty(d.SampleTime),  return; end
+
+    extentError = d.ExtentError(:);            % N×1 signed extent error [m]
+    time        = ConstructTimeFromSampleTime(d.SampleTime);
+    time        = time(:);
+
+    launchIndex = GetLaunchWindow(d);
+    hasLaunch   = ~(isscalar(launchIndex) && launchIndex == 0) ...
+                  && launchIndex(1) >= 1 && launchIndex(1) <= numel(time);
+    if hasLaunch
+        time = time - time(launchIndex(1));   % shift so launch onset is at t = 0
+    end
+
+    n = min(numel(time), numel(extentError));
+    if n < 2, return; end
+    time        = time(1:n);
+    extentError = extentError(1:n);
+
+    launchMask = false(n, 1);
+    if hasLaunch
+        li = launchIndex(launchIndex >= 1 & launchIndex <= n);
+        launchMask(li) = true;
+    end
+    traj = [time, extentError];
 end
 
 

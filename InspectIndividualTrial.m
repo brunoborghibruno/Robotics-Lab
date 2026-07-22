@@ -140,8 +140,9 @@ function InspectIndividualTrial(trialNumber, unit, resamplingFrequency)
         pathDistance{trialCounter,:}         =  Data{actualTrialNumber(trialCounter)}.PathDistance;
 
 
-        realStartPosition{trialCounter,:}    =  Data{actualTrialNumber(trialCounter)}.GlobalPosition(1,:);
-        realTargetPosition{trialCounter,:}   =  Data{actualTrialNumber(trialCounter)}.GlobalPosition(end,:);
+        handStartPosition{trialCounter,:}    =  Data{actualTrialNumber(trialCounter)}.GlobalPosition(1,:);
+        realStartPosition{trialCounter,:}    =  Data{actualTrialNumber(trialCounter)}.StartPosition;
+        realTargetPosition{trialCounter,:}   =  Data{actualTrialNumber(trialCounter)}.TargetPosition;
         mahalanobisDistance{trialCounter,:}  =  Data{actualTrialNumber(trialCounter)}.MahalanobisDistance;
         patientExperiment{trialCounter,:}    =  Data{actualTrialNumber(trialCounter)}.PatientExperiment;
         therapyAllowed{trialCounter,:}       =  Data{actualTrialNumber(trialCounter)}.TherapyAllowed;
@@ -360,31 +361,22 @@ function InspectIndividualTrial(trialNumber, unit, resamplingFrequency)
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  SECOND COLUMN PLOT  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+        % Velocity component toward the target: GlobalVelocity projected onto the
+        % movement-direction unit vector, computed exactly as in
+        % BadVisitSpeedBrowser.m (signed: negative = hand moving back toward the
+        % start). Replaces the previous three raw X/Y/Z velocity component traces.
+        forwardDirection  =  GetMovementDirectionVector(Data{actualTrialNumber(trialCounter)}, movementDirection{trialCounter,:});
+        forwardVelocity   =  velocity{trialCounter, :} * forwardDirection(:);   % N x 1 [m/s]
+        forwardVelMin     =  min([min(forwardVelocity(:)); 0]);   % signed axis, always includes 0
+        forwardVelMax     =  max([max(forwardVelocity(:)); 0]);
+
         ind=[];i=1;for j=3*plotColoumns/4:plotColoumns, ind=[ind,plotRows*(i-1)+j]; end
         ax_10=subplot(plotRows/4,plotColoumns,ind);hold on;
-        PlotTimeSeries(ax_10,experimentMode,velocity{trialCounter, :}(:,1),time{trialCounter,:},'velocity',launchIndex{trialCounter,:},movementDirection{trialCounter,:},movementNumber{trialCounter,:},'m/s', minSpeed, maxSpeed)
-        % tempVerticalAdjustValue = 0;
-        % tempHorizontalAdjustValue = 0.03;
-        % pos =  get(ax_10, 'Position');posnew =  pos;posnew(2) =  posnew(2) + tempVerticalAdjustValue; posnew(1) =  posnew(1) + tempHorizontalAdjustValue;
-        % set(ax_10, 'Position', posnew);
-
-
-        ind=[];i=1;for j=3*plotColoumns/4:plotColoumns, ind=[ind,plotRows*(i-1)+j]; end
-        ax_13=subplot(plotRows/4,plotColoumns,ind);hold on;
-        PlotTimeSeries(ax_13,experimentMode,velocity{trialCounter, :}(:,2),time{trialCounter,:},'velocity',launchIndex{trialCounter,:},movementDirection{trialCounter,:},movementNumber{trialCounter,:},'m/s', minSpeed, maxSpeed)
-        % tempVerticalAdjustValue = 0;
-        % tempHorizontalAdjustValue = 0.03;
-        % pos =  get(ax_11, 'Position');posnew =  pos;posnew(2) =  posnew(2) + tempVerticalAdjustValue; posnew(1) =  posnew(1) + tempHorizontalAdjustValue;
-        % set(ax_11, 'Position', posnew);
-
-
-        ind=[];i=1;for j=3*plotColoumns/4:plotColoumns, ind=[ind,plotRows*(i-1)+j]; end
-        ax_12=subplot(plotRows/4,plotColoumns,ind);hold on;
-        PlotTimeSeries(ax_12,experimentMode,velocity{trialCounter, :}(:,3),time{trialCounter,:},'velocity',launchIndex{trialCounter,:},movementDirection{trialCounter,:},movementNumber{trialCounter,:},'m/s', minSpeed, maxSpeed)
+        PlotTimeSeries(ax_10,experimentMode,forwardVelocity,time{trialCounter,:},'forwardVelocity',launchIndex{trialCounter,:},movementDirection{trialCounter,:},movementNumber{trialCounter,:},'m/s', forwardVelMin, forwardVelMax)
         tempVerticalAdjustValue = 0;
         tempHorizontalAdjustValue = 0.03;
-        pos =  get(ax_12, 'Position');posnew =  pos;posnew(2) =  posnew(2) + tempVerticalAdjustValue; posnew(1) =  posnew(1) + tempHorizontalAdjustValue;
-        set(ax_12, 'Position', posnew);
+        pos =  get(ax_10, 'Position');posnew =  pos;posnew(2) =  posnew(2) + tempVerticalAdjustValue; posnew(1) =  posnew(1) + tempHorizontalAdjustValue;
+        set(ax_10, 'Position', posnew);
 
 
 
@@ -635,6 +627,12 @@ function PlotTimeSeries(axObject,experimentMode,value,time,type,launchIndex,move
             titleString="Velocity";
             axisColor=[0 0.4470 0.7410];
             xlabelString="Time (s)";
+        case 'forwardVelocity'
+            plotSpeed=false(1);
+            plotForce=false(1);
+            titleString="Velocity to Target";
+            axisColor=[0 0.4470 0.7410];
+            xlabelString="Time (s)";
         case 'errAmp'
             plotSpeed=false(1);
             plotForce=false(1);
@@ -758,6 +756,13 @@ function PlotTimeSeries(axObject,experimentMode,value,time,type,launchIndex,move
         yl2.LabelVerticalAlignment = 'middle';
     end
 
+    % Zero reference for the signed velocity-to-target (below zero = hand moving
+    % back toward the start), matching BadVisitSpeedBrowser.m.
+    if strcmp(type,'forwardVelocity')
+        yl0 = yline(0, ':', 'Color', [0.6 0.6 0.6], 'LineWidth', 1);
+        yl0.HandleVisibility = 'off';
+    end
+
     if  (exist("Ymin") && exist("Ymax"))
         set(gca, 'linewidth', 2, 'YColor', axisColor);
     end
@@ -767,6 +772,49 @@ function PlotTimeSeries(axObject,experimentMode,value,time,type,launchIndex,move
     ytickangle(90);
     xlabel(xlabelString,'FontSize',fsz-5, 'FontWeight', 'bold', 'Position',[Xlm(2) Ylm(1)]);
     title(titleString,'FontSize',fsz-3);
+end
+
+
+
+function fwd = GetMovementDirectionVector(d, movementDirection)
+% Unit vector (1x3, global/Unity frame) pointing from the start toward the
+% (possibly shifted) target for this trial. Primary source is the actual
+% TargetPosition - StartPosition, which lives in the same global frame as
+% GlobalVelocity and always points at the real target regardless of any target
+% shift. Falls back to the per-trial RotationMatrix first row, then to the
+% canonical direction table keyed by MovementDirection (0..7). Returned as a
+% unit vector so the projection stays in true velocity units [m/s].
+%
+% NOTE: earlier this used RotationMatrix(1,:) as the primary source, assuming
+% the target always sat along the local +x axis. That assumption breaks for
+% shifted targets (e.g. patient visits), where the local x-axis can point away
+% from the target and the projected velocity-to-target came out negative.
+
+    fwd = [];
+    if isfield(d, 'StartPosition') && isfield(d, 'TargetPosition') && ...
+            ~isempty(d.StartPosition) && ~isempty(d.TargetPosition)
+        fwd = d.TargetPosition(:)' - d.StartPosition(:)';
+        if norm(fwd) == 0, fwd = []; end   % degenerate; fall through
+    end
+    if isempty(fwd) && isfield(d, 'RotationMatrix') && ~isempty(d.RotationMatrix) && isequal(size(d.RotationMatrix), [3 3])
+        fwd = d.RotationMatrix(1, :);
+    end
+    if isempty(fwd)
+        if nargin < 2 || isempty(movementDirection)
+            if isfield(d, 'MovementDirection'), movementDirection = d.MovementDirection; end
+        end
+        if ~isempty(movementDirection)
+            [d0,d1,d2,d3,d4,d5,d6,d7] = GetDirectionsAndMatrixes('numeric');
+            table = [d0'; d1'; d2'; d3'; d4'; d5'; d6'; d7'];
+            if movementDirection >= 0 && movementDirection <= 7
+                fwd = table(movementDirection + 1, :);
+            end
+        end
+    end
+    if ~isempty(fwd)
+        nrm = norm(fwd);
+        if nrm > 0, fwd = fwd / nrm; end   % ensure a unit vector
+    end
 end
 
 

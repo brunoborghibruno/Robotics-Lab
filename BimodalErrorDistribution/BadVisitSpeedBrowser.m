@@ -679,15 +679,28 @@ end
 
 
 function fwd = GetMovementDirectionVector(d)
-% Unit vector (1x3, global/Unity frame) pointing along the intended movement
-% direction for this trial. Primary source: the per-trial RotationMatrix, whose
-% first row is the local +x axis (= movement direction) in global coordinates.
-% Falls back to the canonical direction table keyed by MovementDirection (0..7).
+% Unit vector (1x3, global/Unity frame) pointing from the start toward the
+% (possibly shifted) target for this trial. Primary source: the actual
+% TargetPosition - StartPosition, in the same global frame as GlobalVelocity,
+% which always points at the real target regardless of any target shift. Falls
+% back to the per-trial RotationMatrix first row, then to the canonical
+% direction table keyed by MovementDirection (0..7).
+%
+% NOTE: earlier this used RotationMatrix(1,:) as the primary source, assuming
+% the target always sat along the local +x axis. That assumption breaks for
+% shifted targets (e.g. patient visits), where the local x-axis can point away
+% from the target and the projected velocity-to-target came out negative.
 
     fwd = [];
-    if isfield(d, 'RotationMatrix') && ~isempty(d.RotationMatrix) && isequal(size(d.RotationMatrix), [3 3])
+    if isfield(d, 'StartPosition') && isfield(d, 'TargetPosition') && ...
+            ~isempty(d.StartPosition) && ~isempty(d.TargetPosition)
+        fwd = d.TargetPosition(:)' - d.StartPosition(:)';
+        if norm(fwd) == 0, fwd = []; end   % degenerate; fall through
+    end
+    if isempty(fwd) && isfield(d, 'RotationMatrix') && ~isempty(d.RotationMatrix) && isequal(size(d.RotationMatrix), [3 3])
         fwd = d.RotationMatrix(1, :);
-    elseif isfield(d, 'MovementDirection') && ~isempty(d.MovementDirection)
+    end
+    if isempty(fwd) && isfield(d, 'MovementDirection') && ~isempty(d.MovementDirection)
         mdir = d.MovementDirection;
         [d0,d1,d2,d3,d4,d5,d6,d7] = GetDirectionsAndMatrixes('numeric');
         table = [d0'; d1'; d2'; d3'; d4'; d5'; d6'; d7'];

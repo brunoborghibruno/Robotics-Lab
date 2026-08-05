@@ -20,7 +20,11 @@
 %               component projected onto the movement/target direction, exactly
 %               as VelocityCompensationAnalysis.m computes it. It is signed, so a
 %               dip below zero means the hand moved BACK toward the start.
-%    - bottom : EXTENT ERROR profile — the same trials' ExtentError vs. time.
+%    - bottom : EXTENT ERROR ensemble — every trial's ExtentError vs. time as a
+%               thin faded line, plus the across-trial MEAN as a thick curve with
+%               a shaded ± SD band (the PlotErrorFieldsFormation look, drawn in
+%               this direction's color). Trials are resampled onto a common
+%               launch-aligned time grid before averaging; see the ERR_* options.
 %  The four directions keep their 2x2 arrangement; each direction cell is laid
 %  out as [ big speed  |  velocity (top) / extent error (bottom) ]. This lets you
 %  weigh the speed profile, any backward-movement compensation, and the extent
@@ -62,6 +66,21 @@ USE_CACHE           =   true;   % reuse the last disk scan when subjectIDs uncha
                                 % (skips reloading every .mat when you only tweak
                                 %  plot options). Set false to force a reload.
 
+% ── Extent-error ensemble panel (bottom-right small axes) ─────────────────────
+%  Drawn PlotErrorFieldsFormation-style: every trial of that direction as a thin
+%  faded line, plus the across-trial MEAN as a thick curve with a shaded ± SD
+%  band. Trials are first resampled onto a common launch-aligned time grid (all
+%  traces share t = 0 at launch onset, so the covered region is contiguous).
+ERR_RESAMPLE_DT     =   0.01;   % step of the common time grid for mean/SD      [s]
+ERR_MIN_COVERAGE    =   0.5;    % min fraction of trials present to draw the band
+ERR_SD_MULT         =   2;      % band half-width in SDs (2 = as EnsembleCVPatchPlot)
+ERR_TRACE_ALPHA     =   0.25;   % transparency of the individual extent-error traces
+ERR_TRACE_WIDTH     =   1;      % line width of the individual traces
+ERR_MEAN_WIDTH      =   3.5;    % line width of the thick mean curve
+ERR_PATCH_ALPHA     =   0.20;   % opacity of the shaded SD band
+ERR_LAUNCH_BLACK    =   false;  % also mark launch-window samples black on the thin
+                                % traces (off: they sit under the band and clutter it)
+
 % ── Subjects to analyze ───────────────────────────────────────────────────────
 %  The ID form selects the population automatically (per subject):
 %    'E-<n>' (e.g. 'E-5') -> STROKE PATIENT: 9 visits, files <ID>/<ID>_Visit_<v>.mat
@@ -98,9 +117,16 @@ else
     BADVISIT_SPEED_CACHE = Scan;
 end
 
+% Extent-error ensemble settings travel as one struct (keeps the call short).
+errOpts = struct( ...
+    'ResampleDt',      ERR_RESAMPLE_DT,  'MinCoverage', ERR_MIN_COVERAGE, ...
+    'SdMult',          ERR_SD_MULT,      'TraceAlpha',  ERR_TRACE_ALPHA, ...
+    'TraceWidth',      ERR_TRACE_WIDTH,  'MeanWidth',   ERR_MEAN_WIDTH, ...
+    'PatchAlpha',      ERR_PATCH_ALPHA,  'ShowLaunchBlack', ERR_LAUNCH_BLACK);
+
 try
     BrowseBadVisits(Scan, subjectIDs, saveFile, SPEED_ALPHA, SPEED_WIDTH, SHOW_LAUNCH_BLACK, ...
-        MJ_DESIRED_TIME, MJ_DESIRED_DISTANCE);
+        MJ_DESIRED_TIME, MJ_DESIRED_DISTANCE, errOpts);
 catch ME
     cd(originalDir);   % restore the working directory even if something errors out
     rethrow(ME);
@@ -240,7 +266,7 @@ end
 
 
 function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, showLaunchBlack, ...
-        mjDesiredTime, mjDesiredDistance)
+        mjDesiredTime, mjDesiredDistance, errOpts)
 % Interactive per-visit browser with a "Bad visit" checkbox. Shows ONE visit at
 % a time (4 axes, one per practiced direction) with every intermittent-exposure
 % speed profile overlaid. Steps through visits with the buttons / arrow keys and
@@ -407,12 +433,25 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
         end
         velPad = 0.05*(velMax - velMin);
 
+        % Extent-error ensembles (mean ± SD band on a common launch-aligned time
+        % grid), one per direction. Computed once here so the shared y-limits can
+        % account for a band that reaches beyond the raw traces (few-trial cases).
+        errEns = cell(1, 4);
+        for d = 1:4
+            errEns{d} = BuildErrorEnsemble(rec.errLists{d}, errOpts.ResampleDt, ...
+                errOpts.MinCoverage, errOpts.SdMult);
+        end
+
         % Common y-axis for the extent-error axes: signed, shared across directions.
         errMin = 0; errMax = 0;
         for d = 1:4
             for i = 1:numel(rec.errLists{d})
                 errMin = min(errMin, min(rec.errLists{d}{i}(:,2)));
                 errMax = max(errMax, max(rec.errLists{d}{i}(:,2)));
+            end
+            if ~isempty(errEns{d}.time)
+                errMin = min(errMin, min(errEns{d}.meanCurve - errEns{d}.sdBand));
+                errMax = max(errMax, max(errEns{d}.meanCurve + errEns{d}.sdBand));
             end
         end
         if ~(isfinite(errMin) && isfinite(errMax)) || errMax <= errMin
@@ -470,8 +509,10 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
             yline(axErr(d), 0, ':', 'Color', [0.6 0.6 0.6], 'LineWidth', 1, ...
                 'HandleVisibility', 'off');
 
-            PlotSpeedOverlay(axErr(d), rec.errLists{d}, rec.errLaunchList{d}, ...
-                    col, speedAlpha, speedWidth, showLaunchBlack);
+            % All trials thin + faded, then the mean ± SD band on top — the
+            % PlotErrorFieldsFormation ensemble look, in this direction's color.
+            PlotExtentErrorEnsemble(axErr(d), rec.errLists{d}, rec.errLaunchList{d}, ...
+                    errEns{d}, col, errOpts);
 
             grid(axErr(d), 'off'); box(axErr(d), 'off');
             set(axErr(d), 'LineWidth', 1.5, 'FontSize', 10, ...
@@ -479,7 +520,7 @@ function BrowseBadVisits(Scan, subjectIDs, saveFile, speedAlpha, speedWidth, sho
             ylim(axErr(d), [errMin - errPad, errMax + errPad]);   % shared, signed
             xlabel(axErr(d), 'Time (s)', 'FontSize', 10, 'FontWeight', 'bold');
             ylabel(axErr(d), 'Extent error (m)', 'FontSize', 10, 'FontWeight', 'bold');
-            title(axErr(d), 'Extent error', ...
+            title(axErr(d), sprintf('Extent error (mean \\pm %g SD)', errOpts.SdMult), ...
                 'FontSize', 10, 'FontWeight', 'bold', 'Color', col);
         end
 
@@ -559,6 +600,93 @@ function nUsed = PlotSpeedOverlay(ax, speedList, launchMaskList, col, alpha, lin
             end
         end
     end
+end
+
+
+function E = BuildErrorEnsemble(errList, dt, minCoverage, sdMult)
+% Across-trial mean and ± sdMult*SD of the extent error for ONE direction.
+%
+% Every trial's [time, extentError] is launch-aligned (t = 0 at onset) but has its
+% own sampling and duration, so they are first resampled (linear, no extrapolation)
+% onto a common time grid of step dt. A grid point is kept only where at least
+% minCoverage of the trials still have data — since every trace contains t = 0,
+% the kept region is one contiguous interval around the launch onset.
+%
+% Returns E with fields: time (K x 1), meanCurve (K x 1), sdBand (K x 1, already
+% multiplied by sdMult), nTrials. E.time is empty when nothing is plottable.
+
+    E = struct('time', [], 'meanCurve', [], 'sdBand', [], 'nTrials', numel(errList));
+    n = numel(errList);
+    if n == 0, return; end
+
+    tMin = inf; tMax = -inf;
+    for i = 1:n
+        t    = errList{i}(:,1);
+        tMin = min(tMin, min(t));
+        tMax = max(tMax, max(t));
+    end
+    if ~isfinite(tMin) || ~isfinite(tMax) || tMax <= tMin, return; end
+
+    tGrid = (floor(tMin/dt)*dt : dt : ceil(tMax/dt)*dt)';
+    M     = nan(numel(tGrid), n);
+    for i = 1:n
+        [t, iu] = unique(errList{i}(:,1));    % interp1 needs strictly increasing x
+        y       = errList{i}(iu, 2);
+        good    = isfinite(t) & isfinite(y);
+        if sum(good) < 2, continue; end
+        M(:, i) = interp1(t(good), y(good), tGrid, 'linear', NaN);   % no extrapolation
+    end
+
+    keep = sum(~isnan(M), 2) >= max(1, minCoverage*n);
+    if ~any(keep), return; end
+
+    Mk           = M(keep, :);
+    E.time       = tGrid(keep);
+    E.meanCurve  = mean(Mk, 2, 'omitnan');
+    sd           = std(Mk, 0, 2, 'omitnan');
+    sd(~isfinite(sd)) = 0;              % single-trial coverage -> no band, not NaN
+    E.sdBand     = sdMult * sd;
+end
+
+
+function PlotExtentErrorEnsemble(ax, errList, launchMaskList, E, col, o)
+% Extent-error panel in the PlotErrorFieldsFormation style, using this
+% direction's color: every trial as a thin faded line first (so it lands behind),
+% then the shaded ± SD patch, then the thick mean curve on top.
+
+    for i = 1:numel(errList)
+        t  = errList{i}(:,1);
+        ee = errList{i}(:,2);
+        plot(ax, t, ee, '-', 'Color', [col, o.TraceAlpha], 'LineWidth', o.TraceWidth);
+
+        if o.ShowLaunchBlack && i <= numel(launchMaskList)
+            lm = launchMaskList{i};
+            if any(lm)
+                plot(ax, t(lm), ee(lm), '-', 'Color', [0 0 0 o.TraceAlpha], ...
+                    'LineWidth', o.TraceWidth);
+            end
+        end
+    end
+
+    if isempty(E.time), return; end
+
+    % Patch color: a lighter tint of the direction color (same generator
+    % PlotErrorFieldsFormation uses), so the band reads as "this direction".
+    patchCol = col;
+    try
+        hues = SingleHueScaleGenerator(col, 4);
+        if size(hues, 1) >= 2, patchCol = hues(2, :); end
+    catch
+        % helper unavailable -> fall back to the direction color itself
+    end
+
+    x  = E.time;
+    lo = E.meanCurve - E.sdBand;
+    hi = E.meanCurve + E.sdBand;
+    patch(ax, [x; flipud(x)], [hi; flipud(lo)], patchCol, ...
+        'EdgeColor', 'none', 'FaceAlpha', o.PatchAlpha, 'HandleVisibility', 'off');
+
+    plot(ax, x, E.meanCurve, '-', 'Color', col, 'LineWidth', o.MeanWidth);
 end
 
 

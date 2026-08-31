@@ -22,8 +22,12 @@ visitsToCompare             =   [treatmentVisit(2), treatmentVisit(5), treatment
 % visitsToCompare     =   [treatmentVisit(1), treatmentVisit(2), treatmentVisit(3)];
 
 
-errorMetric     =  "MaximumErrorAmplitude";
-% errorMetric   =   "MaximumPerpendicularError";
+% Every metric listed here is extracted once and stored in the "Error" struct
+% under its own field name, so the expensive loading loop below never has to be
+% re-run when you change your mind. The metric that is actually plotted is
+% picked further down, at the top of the "Calculates all the improved accuracy
+% values for every subject" section (variable "errorMetric").
+errorMetricsToStore =   ["MaximumErrorAmplitude", "MaximumPerpendicularError"];
 
 typeOfMetric    =   'launch';
 % typeOfMetric    =   'entire';
@@ -94,16 +98,22 @@ for count = 1:length(subjectsList)
             groupTypeIndex  =   1;
         end
 
-        Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).(matlab.lang.makeValidName(errorMetric)).IntermittentExposure    =   [GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionZero, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionOne, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionTwo, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionThree, errorMetric, typeOfMetric)'];
+        for metricCount = 1:length(errorMetricsToStore)
+            thisMetric  =   errorMetricsToStore(metricCount);
+            Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).(matlab.lang.makeValidName(thisMetric)).IntermittentExposure    =   [GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionZero, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionOne, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionTwo, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionThree, thisMetric, typeOfMetric)'];
+        end
         Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).MaxSpeed.IntermittentExposure                                    =   [GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionZero, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionOne, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionTwo, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.IntermittentExposure.DirectionThree, 'Speed', typeOfMetric)'];
 
         if (index > 1 && index < 8)
         % if (index > 0 && index < 3)
             AddPostTrainingPhaseIndexToSpecialMovementIndex();       % Temporary function to add the post training error values since they are missing in he saved data until subject E25
-            Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).(matlab.lang.makeValidName(errorMetric)).Training        =   [GetErrorVector(SpecialMovementIndex.PureTraining.DirectionZero, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionOne, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionTwo, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionThree, errorMetric, typeOfMetric)'];
+            for metricCount = 1:length(errorMetricsToStore)
+                thisMetric  =   errorMetricsToStore(metricCount);
+                Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).(matlab.lang.makeValidName(thisMetric)).Training        =   [GetErrorVector(SpecialMovementIndex.PureTraining.DirectionZero, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionOne, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionTwo, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionThree, thisMetric, typeOfMetric)'];
+                Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).(matlab.lang.makeValidName(thisMetric)).PostTraining    =   [GetErrorVector(SpecialMovementIndex.PostTraining.DirectionZero, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionOne, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionTwo, thisMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionThree, thisMetric, typeOfMetric)'];
+            end
             Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).MaxSpeed.Training                                        =   [GetErrorVector(SpecialMovementIndex.PureTraining.DirectionZero, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionOne, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionTwo, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PureTraining.DirectionThree, 'Speed', typeOfMetric)'];
-            Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).(matlab.lang.makeValidName(errorMetric)).PostTraining    =   [GetErrorVector(SpecialMovementIndex.PostTraining.DirectionZero, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionOne, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionTwo, errorMetric, typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionThree, errorMetric, typeOfMetric)'];
-            Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).MaxSpeed.Training                                        =   [GetErrorVector(SpecialMovementIndex.PostTraining.DirectionZero, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionOne, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionTwo, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionThree, 'Speed', typeOfMetric)'];
+            Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).MaxSpeed.PostTraining                                    =   [GetErrorVector(SpecialMovementIndex.PostTraining.DirectionZero, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionOne, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionTwo, 'Speed', typeOfMetric)', GetErrorVector(SpecialMovementIndex.PostTraining.DirectionThree, 'Speed', typeOfMetric)'];
         end
 
         if (medianGlobalPosition == 1)
@@ -657,7 +667,16 @@ cd(functionsFolder);
 
 %% Calculates all the improved accuracy values for every subject
 
+% ---- Choose here which of the stored metrics is plotted from now on --------
+% Both metrics are already inside "Error", so you can switch this line and
+% re-run only from this section downwards (Ctrl+Enter) - no reloading needed.
+errorMetric     =   "MaximumErrorAmplitude";
+% errorMetric     =   "MaximumPerpendicularError";
 
+if ~ismember(errorMetric, errorMetricsToStore)
+    error("errorMetric '%s' was not stored. Add it to errorMetricsToStore and re-run the loading section.", errorMetric);
+end
+% ---------------------------------------------------------------------------
 
 ImprovedAccuracyComparison  =   ["Treatment_1_vs_4_SHAM", "Treatment_1_vs_4_EF", "Visit_1_vs_8"];
 % ForceOnComparison   =   ["ImprovedAccuracyForceOn", "ImprovedAccuracyForceOff", "ImprovedAccuracyBaselineIntermExp"];

@@ -69,6 +69,14 @@ Y_LIMIT_MODE = 'band';
 Y_PAD_FRAC   = 0.05;        % headroom added above and below, as a fraction of the range
 Y_LIMITS     = [];          % [lo hi] to force the limits by hand ([] = automatic)
 
+% ── "Didn't move" flag ───────────────────────────────────────────────────────
+%  A direction axes gets a grey background when its MEAN curve ends (last
+%  plotted point, far right) at or below `threshold`. An end near -0.1 m means
+%  the target (~10 cm away) was never approached: the subject did not move.
+FlagOpts.show      = true;
+FlagOpts.threshold = -0.05;             % in UNIT (-0.1 m = never left the start; FlagOpts.threshold is the tolerance). Use -8 when UNIT = 'cm'.
+FlagOpts.color     = [0.88 0.88 0.88];  % background of a flagged axes
+
 % ── Scan cache ───────────────────────────────────────────────────────────────
 FORCE_RESCAN = false;
 % ───────────────────────────────────────────────────────────────────────────
@@ -103,7 +111,7 @@ try
     DrawEFGrid(EFGridScan, UNIT, RESAMPLE_DT, MIN_COVERAGE, BLINDNESS, ...
                SHOW_VISIT_NUMBER, TICK_FONT_SIZE, LABEL_FONT_SIZE, ...
                VISIT_TAG_FONT_SIZE, FOOTER_FONT_SIZE, ...
-               Y_LIMIT_MODE, Y_PAD_FRAC, Y_LIMITS, TrialOpts);
+               Y_LIMIT_MODE, Y_PAD_FRAC, Y_LIMITS, TrialOpts, FlagOpts);
 catch scanErr
     cd(scriptDir);
     rethrow(scanErr);
@@ -207,10 +215,12 @@ end
 
 
 function DrawEFGrid(Scan, unit, dt, minCoverage, blindness, showVisitNumber, tickFontSize, labelFontSize, ...
-                    visitTagFontSize, footerFontSize, yLimitMode, yPadFrac, yLimits, trialOpts)
+                    visitTagFontSize, footerFontSize, yLimitMode, yPadFrac, yLimits, trialOpts, flagOpts)
 % Subject x (1st/2nd/3rd EF visit) grid. Every cell is split 2 x 2 into the
 % four practiced-direction axes of BimodalExtentErrorDistributions' Figure 1.
 % All of those axes end up on one common y axis (see the Y_LIMIT_* options).
+% Axes whose mean curve ends significantly below zero get a grey background
+% (see the FlagOpts options).
 
     switch unit
         case 'cm', unitStr = '(cm)';
@@ -295,10 +305,22 @@ function DrawEFGrid(Scan, unit, dt, minCoverage, blindness, showVisitNumber, tic
 
                 ax = axes(fig, 'Position', pos);
                 hold(ax, 'on');
-                [~, bandRange] = PlotMeanBand(ax, rec.trajLists{dCount}, rec.launchEndLists{dCount}, ...
-                                              PracticedColor(dCount, :), dt, minCoverage, trialOpts);
+                [~, bandRange, endInfo] = PlotMeanBand(ax, rec.trajLists{dCount}, rec.launchEndLists{dCount}, ...
+                                                       PracticedColor(dCount, :), dt, minCoverage, trialOpts);
                 grid(ax, 'off'); box(ax, 'off');
                 set(ax, 'LineWidth', 1, 'FontSize', tickFontSize);
+
+                % "Didn't move" flag: grey background when the mean curve ends
+                % at or below the threshold.
+                if flagOpts.show
+                    [isFlagged, nEnd] = IsFlaggedEnd(endInfo, flagOpts);
+                    if isFlagged
+                        set(ax, 'Color', flagOpts.color);
+                        fprintf('%-10s V%d  D%d  |  flagged: mean end = %.4g %s, n = %d\n', ...
+                                rowLabel, subjects(s).efVisits(c), dCount - 1, ...
+                                endInfo.meanEnd, unit, nEnd);
+                    end
+                end
                 hold(ax, 'off');
 
                 allAxes(end+1) = ax; %#ok<AGROW>
@@ -350,10 +372,17 @@ function DrawEFGrid(Scan, unit, dt, minCoverage, blindness, showVisitNumber, tic
                 unitStr, yLimitMode, yLimits(1), yLimits(2));
     end
 
-    % Shared axis labels (per-axes labels do not fit inside a cell).
+    % Shared axis labels (per-axes labels do not fit inside a cell), plus the
+    % meaning of the grey "didn't move" background.
+    footer = "x: Time (s)      y: Extent Error " + string(unitStr) + ...
+             "      Directions per cell:  D0 D1 / D2 D3      (single trials, mean \pm 2 SD, launch phase in black)";
+    if flagOpts.show
+        footer = [footer; string(sprintf(['Grey background: mean curve ends at or below %g %s ' ...
+                  '(\\approx -0.1 m = target never approached) = subject did not move'], ...
+                  flagOpts.threshold, unit))];
+    end
     annotation(fig, 'textbox', [gridL, 0, gridR - gridL, gridB], ...
-        'String', 'x: Time (s)      y: Extent Error ' + string(unitStr) + ...
-                  '      Directions per cell:  D0 D1 / D2 D3      (single trials, mean \pm 2 SD, launch phase in black)', ...
+        'String', footer, ...
         'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
         'FontSize', footerFontSize, 'FontWeight', 'bold', 'LineStyle', 'none', ...
         'Interpreter', 'tex');
@@ -395,16 +424,19 @@ end
 
 %% ── Copied unchanged from BimodalExtentErrorDistributions.m ────────────────
 
-function [nUsed, yRange] = PlotMeanBand(ax, trajList, launchEnds, col, dt, minCoverage, trialOpts)
+function [nUsed, yRange, endInfo] = PlotMeanBand(ax, trajList, launchEnds, col, dt, minCoverage, trialOpts)
 % Resamples all trajectories onto a common time grid, then draws a thick mean
 % line with a semi-transparent mean +/- 2*SD band, optionally with every
 % individual trial as a thin semi-transparent line in between. The launch phase of the
 % mean line — from t = 0 (launch onset) to the trial-averaged launch-window
 % end — is drawn in black. Returns the trial count and yRange = [min max] of
 % what was drawn ([] when nothing was), which the caller uses to build the
-% grid-wide y axis.
+% grid-wide y axis. endInfo describes the LAST point of the mean line
+% (.meanEnd, its time .t, and .vals = the trial values averaged there), [] when
+% nothing was drawn; the caller uses it for the "didn't move" flag.
 
-    yRange = [];
+    yRange  = [];
+    endInfo = [];
     nUsed  = numel(trajList);
     if nUsed == 0, return; end
 
@@ -439,6 +471,10 @@ function [nUsed, yRange] = PlotMeanBand(ax, trajList, launchEnds, col, dt, minCo
     sd    = sdAll(lo:hi);
     upper = mu + 2*sd;
     lower = mu - 2*sd;
+
+    % Last point of the mean line and the trial values it is the mean of.
+    endVals = M(:, hi);
+    endInfo = struct('meanEnd', mu(end), 't', tg(end), 'vals', endVals(~isnan(endVals)));
 
     % Semi-transparent +/- 2*SD band ...
     fill(ax, [tg, fliplr(tg)], [upper, fliplr(lower)], col, ...
@@ -536,6 +572,18 @@ function launchIndex = GetLaunchWindow(d)
             isfield(d, 'TherapyWindowIndex') && ~isempty(d.TherapyWindowIndex)
         launchIndex = d.TherapyWindowIndex(:);
     end
+end
+
+
+function [isFlagged, n] = IsFlaggedEnd(endInfo, flagOpts)
+% True when the last point of the mean curve is at or below flagOpts.threshold.
+% n = number of trials averaged at that point (for the console log).
+
+    isFlagged = false;
+    n = 0;
+    if isempty(endInfo), return; end
+    n = numel(endInfo.vals);
+    isFlagged = endInfo.meanEnd <= flagOpts.threshold;
 end
 
 

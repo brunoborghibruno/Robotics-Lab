@@ -31,8 +31,8 @@ SPEED_FRACTION      =   1;   % fraction of speed trials to plot per direction (0
 SPEED_SEED          =   42;     % RNG seed for the random subsample (fixed = same trials each run; [] = different each run)
 SPEED_WIDTH         =   3;      % speed line width at >= 20% of trials
 SPEED_WIDTH_SPARSE  =   3;    % speed line width when SPEED_FRACTION < 0.20 (sparE-47_Visit_7se subsample)
-PLOT_EXTENT_ERROR   =   false;  % draw Figure 1 (ExtentError mean +/- 2*SD)
-PLOT_SPEED          =   true;   % draw Figure 2 (individual speed trajectories)
+PLOT_EXTENT_ERROR   =   true;  % draw Figure 1 (ExtentError mean +/- 2*SD)
+PLOT_SPEED          =   false;   % draw Figure 2 (individual speed trajectories)
 BROWSE_VISITS       =   true;   % INTERACTIVE mode: step through ONE visit at a time
                                 % (per subject, in order), Next/Prev buttons or arrow
                                 % keys. Replaces the pooled figures above. The metric

@@ -7,7 +7,7 @@ close all; clear all; clc;
 
 
 % subjectsList            =   ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28"];
-subjectsList            =   ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", "E-42", "E-44", "E-47", "E-56", "E-69", "E-91", "E-93"];
+subjectsList            =   ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", "E-42", "E-44", "E-47", "E-56", "E-69", "E-81", "E-91", "E-93"];
 
 % subjectsList    =  ["P-2"];
 % EF_First_Group    =   ["E-5", "E-21", "E-25"];
@@ -31,6 +31,22 @@ errorMetricsToStore =   ["MaximumErrorAmplitude", "MaximumPerpendicularError"];
 
 typeOfMetric    =   'launch';
 % typeOfMetric    =   'entire';
+
+
+% ── Wrong movement-onset annotation on the EF figure titles ──────────────────
+%  Adds "V2 30% | V3 12% | V4 45% bad" next to the title of every ERROR-FIELD
+%  figure (the SHAM and the Visit_1-vs-Visit_8 figures are left alone). Each
+%  number is the share of intermittent-exposure practiced-direction trials whose
+%  onset the robot detected PREMATURELY, i.e. the same quantity the grid in
+%  BimodalErrorDistribution/MovementOnsetDetectionAnalysis.m plots.
+%  The visits reported are the ones the figure spans, EXCLUDING the closing
+%  visit: a Visit_2-vs-Visit_5 figure reports Visit_2, Visit_3 and Visit_4.
+%  The rates come from ScanAllVisits(), shared with MovementOnsetDetectionAnalysis.m
+%  and re-run from scratch on every run of this script (it is the slow step —
+%  it re-derives the MACC onset of every trial of every visit).
+SHOW_WRONG_ONSET_IN_TITLE = true;
+EF_MOVEMENT_RANGE         = [210 250];   % MovementNumber window used to type a visit EF vs SHAM
+% ───────────────────────────────────────────────────────────────────────────
 
 
 functionsFolder         =   pwd; % it saves the current folder calleed MATLAB where all the programs and data is
@@ -678,6 +694,18 @@ if ~ismember(errorMetric, errorMetricsToStore)
 end
 % ---------------------------------------------------------------------------
 
+% ── Wrong movement-onset rates that annotate the EF titles ───────────────────
+% ScanAllVisits() takes an absolute base path and does not touch pwd, so it is
+% safe to call here, after the cd(functionsFolder) above. It sets the global
+% Data while it works; every GetErrorVector call of the loading section is long
+% finished by now, so nothing downstream is disturbed.
+onsetResults = [];
+if SHOW_WRONG_ONSET_IN_TITLE
+    fprintf('\nScanning the movement-onset detection of every visit (slow step)...\n');
+    onsetResults = ScanAllVisits(initialFolder, cellstr(subjectsList), EF_MOVEMENT_RANGE, false);
+end
+% ───────────────────────────────────────────────────────────────────────────
+
 ImprovedAccuracyComparison  =   ["Treatment_1_vs_4_SHAM", "Treatment_1_vs_4_EF", "Visit_1_vs_8"];
 % ForceOnComparison   =   ["ImprovedAccuracyForceOn", "ImprovedAccuracyForceOff", "ImprovedAccuracyBaselineIntermExp"];
 % directionsToCompare =   ["Dir0", "Dir1", "Dir2", "Dir3"];
@@ -793,6 +821,17 @@ yLimits = [error_lower_bound, error_upper_bound];
 
 
 
+%% Draw the per-subject Speed vs Accuracy figures
+
+% Re-runnable on its own (Ctrl+Enter) once the section above has run: it only
+% reads SingleSubjectProcessedData, onsetResults and the EF_globalPos_* inputs,
+% all of which stay in the workspace. In particular it does NOT repeat the
+% movement-onset scan, so the EF titles keep the percentages already computed.
+% The two counters are reset here so a re-run redraws from figure 1 instead of
+% appending to the handles of the previous run.
+graphCount      =   1;
+allMainAxes     =   [];
+
 for count = subjectsList
 
     % Visit_4 vs Visit_1 SHAM TREATMENT
@@ -809,13 +848,18 @@ for count = subjectsList
         SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(ImprovedAccuracyComparison(1))) = improvedAccuracy;
 
         % Treatment_EF_1 vs Treatment_EF_4 plots
-        [hAx, insetAxes1, insetAxes2, baselineRegressionLineX, baselineRegressionLineY]   =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(1))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(1))).Error, rowNumber, colNumber, 1, 'Error Field', 'Speed', 'Accuracy', xLines, 1, 'filled', 1, 'Baseline', EF_globalPos_IntermittentExp_Dir0, EF_globalPos_IntermittentExp_Dir1, EF_globalPos_IntermittentExp_Dir2, EF_globalPos_IntermittentExp_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_IntermittentExp_Dir0, EF_globalStd_IntermittentExp_Dir1, EF_globalStd_IntermittentExp_Dir2, EF_globalStd_IntermittentExp_Dir3, xLimits, yLimits);
+        % Title of the ERROR-FIELD figure: 'Error Field' plus the wrong-onset rate of
+        % each treatment visit this comparison spans, the closing visit excluded.
+        efTitle = ['Error Field' WrongOnsetTitleSuffix(onsetResults, char(count), ...
+                                                       VisitNumberFromName(visitsToCompare(1)), ...
+                                                       VisitNumberFromName(visitsToCompare(2)))];
+        [hAx, insetAxes1, insetAxes2, baselineRegressionLineX, baselineRegressionLineY]   =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(1))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(1))).Error, rowNumber, colNumber, 1, efTitle, 'Speed', 'Accuracy', xLines, 1, 'filled', 1, 'Baseline', EF_globalPos_IntermittentExp_Dir0, EF_globalPos_IntermittentExp_Dir1, EF_globalPos_IntermittentExp_Dir2, EF_globalPos_IntermittentExp_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_IntermittentExp_Dir0, EF_globalStd_IntermittentExp_Dir1, EF_globalStd_IntermittentExp_Dir2, EF_globalStd_IntermittentExp_Dir3, xLimits, yLimits);
         hAxSaved_1                  =   hAx;
         insetAxes1Saved_1           =   insetAxes1;
         insetAxes2Saved_1           =   insetAxes2;
         allMainAxes(graphCount)     =   hAx;
         graphCount                  =   graphCount + 1;
-        [~, ~, ~, ~, ~, improvedAccuracy]             =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Error, rowNumber, colNumber, 1, 'Error Field', 'Speed', 'Accuracy', xLines, 2, 'filled', 1, 'Interm Exp', EF_globalPos_PostTraining_Dir0, EF_globalPos_PostTraining_Dir1, EF_globalPos_PostTraining_Dir2, EF_globalPos_PostTraining_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_PostTraining_Dir0, EF_globalStd_PostTraining_Dir1, EF_globalStd_PostTraining_Dir2, EF_globalStd_PostTraining_Dir3, xLimits, yLimits, hAxSaved_1, insetAxes1Saved_1, insetAxes2Saved_1, baselineRegressionLineX, baselineRegressionLineY);
+        [~, ~, ~, ~, ~, improvedAccuracy]             =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Error, rowNumber, colNumber, 1, efTitle, 'Speed', 'Accuracy', xLines, 2, 'filled', 1, 'Interm Exp', EF_globalPos_PostTraining_Dir0, EF_globalPos_PostTraining_Dir1, EF_globalPos_PostTraining_Dir2, EF_globalPos_PostTraining_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_PostTraining_Dir0, EF_globalStd_PostTraining_Dir1, EF_globalStd_PostTraining_Dir2, EF_globalStd_PostTraining_Dir3, xLimits, yLimits, hAxSaved_1, insetAxes1Saved_1, insetAxes2Saved_1, baselineRegressionLineX, baselineRegressionLineY);
         SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(ImprovedAccuracyComparison(2))) = improvedAccuracy;
 
     else
@@ -831,13 +875,18 @@ for count = subjectsList
         SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(ImprovedAccuracyComparison(1))) = improvedAccuracy;
 
         % Treatment_EF_1 vs Treatment_EF_4 plots
-        [hAx, insetAxes1, insetAxes2, baselineRegressionLineX, baselineRegressionLineY]   =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Error, rowNumber, colNumber, 1, 'Error Field', 'Speed', 'Accuracy', xLines, 1, 'filled', 1, 'Baseline', EF_globalPos_IntermittentExp_Dir0, EF_globalPos_IntermittentExp_Dir1, EF_globalPos_IntermittentExp_Dir2, EF_globalPos_IntermittentExp_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_IntermittentExp_Dir0, EF_globalStd_IntermittentExp_Dir1, EF_globalStd_IntermittentExp_Dir2, EF_globalStd_IntermittentExp_Dir3, xLimits, yLimits);
+        % Title of the ERROR-FIELD figure: 'Error Field' plus the wrong-onset rate of
+        % each treatment visit this comparison spans, the closing visit excluded.
+        efTitle = ['Error Field' WrongOnsetTitleSuffix(onsetResults, char(count), ...
+                                                       VisitNumberFromName(visitsToCompare(2)), ...
+                                                       VisitNumberFromName(visitsToCompare(3)))];
+        [hAx, insetAxes1, insetAxes2, baselineRegressionLineX, baselineRegressionLineY]   =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Error, rowNumber, colNumber, 1, efTitle, 'Speed', 'Accuracy', xLines, 1, 'filled', 1, 'Baseline', EF_globalPos_IntermittentExp_Dir0, EF_globalPos_IntermittentExp_Dir1, EF_globalPos_IntermittentExp_Dir2, EF_globalPos_IntermittentExp_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_IntermittentExp_Dir0, EF_globalStd_IntermittentExp_Dir1, EF_globalStd_IntermittentExp_Dir2, EF_globalStd_IntermittentExp_Dir3, xLimits, yLimits);
         hAxSaved_1                  =   hAx;
         insetAxes1Saved_1           =   insetAxes1;
         insetAxes2Saved_1           =   insetAxes2;
         allMainAxes(graphCount)     =   hAx;
         graphCount                  =   graphCount + 1;
-        [~, ~, ~, ~, ~, improvedAccuracy]             =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(3))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(3))).Error, rowNumber, colNumber, 1, 'Error Field', 'Speed', 'Accuracy', xLines, 2, 'filled', 1, 'Interm Exp', EF_globalPos_PostTraining_Dir0, EF_globalPos_PostTraining_Dir1, EF_globalPos_PostTraining_Dir2, EF_globalPos_PostTraining_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_PostTraining_Dir0, EF_globalStd_PostTraining_Dir1, EF_globalStd_PostTraining_Dir2, EF_globalStd_PostTraining_Dir3, xLimits, yLimits, hAxSaved_1, insetAxes1Saved_1, insetAxes2Saved_1, baselineRegressionLineX, baselineRegressionLineY);
+        [~, ~, ~, ~, ~, improvedAccuracy]             =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(3))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(3))).Error, rowNumber, colNumber, 1, efTitle, 'Speed', 'Accuracy', xLines, 2, 'filled', 1, 'Interm Exp', EF_globalPos_PostTraining_Dir0, EF_globalPos_PostTraining_Dir1, EF_globalPos_PostTraining_Dir2, EF_globalPos_PostTraining_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_PostTraining_Dir0, EF_globalStd_PostTraining_Dir1, EF_globalStd_PostTraining_Dir2, EF_globalStd_PostTraining_Dir3, xLimits, yLimits, hAxSaved_1, insetAxes1Saved_1, insetAxes2Saved_1, baselineRegressionLineX, baselineRegressionLineY);
         SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(ImprovedAccuracyComparison(2))) = improvedAccuracy;
 
     end
@@ -1020,8 +1069,7 @@ text(0.005, postEvaluationCoeff(1) * 0 + postEvaluationCoeff(2) + 0.4, 'Last Vis
 % compared changes: the first one is Visit_2 (baseline) vs Visit_5 (post
 % evaluation), the second one Visit_5 (baseline) vs Visit_8 (post evaluation).
 % Each row of copulaVisitPairs is [baselineVisit, postEvaluationVisit].
-copulaVisitPairs    =   [treatmentVisit(2), treatmentVisit(5); ...
-                         treatmentVisit(5), treatmentVisit(8)];
+copulaVisitPairs    =   [treatmentVisit(2), treatmentVisit(5); treatmentVisit(5), treatmentVisit(8)];
 
 for pairCount = 1:size(copulaVisitPairs, 1)
 
@@ -1107,6 +1155,18 @@ for count = 1:length(subjectsList)
         panelTitle  =   EF_First_Group_Label;
     else
         panelTitle  =   SHAM_First_Group_Label;
+    end
+
+    % Same annotation as the per-subject figures, on the EF panels only: the
+    % wrong-onset rate of each treatment visit this block spans, the closing
+    % visit excluded (Visit_2 vs Visit_5 -> Visit_2, Visit_3, Visit_4). The
+    % compact style is used because a 2 x 7 panel cannot hold the labelled one.
+    % SHAM panels keep their plain title.
+    if (strcmp(panelTitle, "EF"))
+        panelTitle  =   panelTitle + string(WrongOnsetTitleSuffix(onsetResults, ...
+                            char(subjectsList(count)), ...
+                            VisitNumberFromName(visitsPair(1)), ...
+                            VisitNumberFromName(visitsPair(2)), 'compact'));
     end
     for index = 1:length(treatmentVisit)
         xTemp               =   Error.(matlab.lang.makeValidName(subjectsList(count))).(treatmentVisit(index)).MaxSpeed.IntermittentExposure;
@@ -1809,4 +1869,63 @@ function slot = BinOntoGrid(centres, nSlots)
     step = range(centres) / (nSlots - 1);
     slot = round((centres - min(centres)) / step) + 1;
     slot = min(nSlots, max(1, slot));
+end
+
+
+function n = VisitNumberFromName(visitName)
+% "Visit_5" -> 5. NaN if the name does not carry a number.
+    n = str2double(extractAfter(string(visitName), "Visit_"));
+end
+
+
+function txt = WrongOnsetTitleSuffix(onsetResults, subjectID, fromVisit, toVisit, style)
+% Builds the "  |  V2 30% | V3 12% | V4 45% bad" tail appended to an EF figure
+% title. It reports the visits from fromVisit up to but NOT including toVisit -
+% the treatment visits run between the two visits the figure compares, e.g. a
+% Visit_2-vs-Visit_5 figure reports Visit_2, Visit_3, Visit_4.
+%
+% style (optional):
+%   'full'    - default, labels every visit: "  |  V2 30% | V3 12% | V4 45% bad"
+%   'compact' - drops the labels: "  (30% 12% 45% bad)". Meant for the copulas
+%               grid, where a 2 x 7 panel is far too narrow for the full form;
+%               the visits are still in order, and the figure name already says
+%               which pair of visits the grid spans.
+%
+% Each percentage is FracWrong from ScanAllVisits(): premature-onset trials over
+% the processable intermittent-exposure practiced-direction trials of that visit.
+% A visit that was never scanned (no .mat, or the scan skipped it) prints '-'.
+% Returns '' when no scan is available, so the title falls back to plain
+% 'Error Field' instead of erroring.
+
+    txt = '';
+    if nargin < 5 || isempty(style), style = 'full'; end
+    if isempty(onsetResults) || isnan(fromVisit) || isnan(toVisit), return; end
+
+    visitNums = fromVisit:(toVisit - 1);
+    if isempty(visitNums), return; end
+
+    compact = strcmpi(style, 'compact');
+
+    parts = cell(1, numel(visitNums));
+    for k = 1:numel(visitNums)
+        v   = visitNums(k);
+        row = find(strcmp({onsetResults.SubjectID}, subjectID) & ...
+                   [onsetResults.VisitNum] == v, 1);
+        if isempty(row) || isnan(onsetResults(row).FracWrong)
+            if compact, parts{k} = '-'; else, parts{k} = sprintf('V%d -', v); end
+        else
+            pct = 100 * onsetResults(row).FracWrong;
+            if compact
+                parts{k} = sprintf('%.0f%%', pct);
+            else
+                parts{k} = sprintf('V%d %.0f%%', v, pct);
+            end
+        end
+    end
+
+    if compact
+        txt = ['  (' strjoin(parts, ' ') ' bad)'];
+    else
+        txt = ['  |  ' strjoin(parts, ' | ') ' bad'];
+    end
 end

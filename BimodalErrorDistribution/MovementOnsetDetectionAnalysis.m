@@ -1,4 +1,4 @@
-%% Wrong Movement-Onset Detection Analysis
+%% Wrong Movement-Onset Detection Analysis - BORGHI BRUNO
 %
 %  Mirrors the structure of ErrorAmplitudeBimodalDistributionAnalysis.m, but
 %  instead of the bimodal error check it quantifies how often the robot's

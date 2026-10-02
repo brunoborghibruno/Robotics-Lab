@@ -17,8 +17,8 @@ CONTROLgroup    =   ["35", "36", "39", "42", "49", "53", "54", "56", "60", "61"]
 
 
 % Metric to analyse and plot. Angle metrics are in [deg], the others in [m].
-errorMetric     =   "MaximumErrorAmplitude";
-% errorMetric     =   "MaximumPerpendicularError";
+% errorMetric     =   "MaximumErrorAmplitude";
+errorMetric     =   "MaximumPerpendicularError";
 % errorMetric     =   "MaximumExtentError";
 % errorMetric      =   "LaunchDeviationAngle";
 
@@ -1173,51 +1173,117 @@ uistack([h_3; h_plot_3],'bottom');
 % Pre  = mean of the last  nTrialsToAverage good trials per direction with MovementNumber < preTrainingEnd
 % Post = mean of the first nTrialsToAverage good trials per direction with MovementNumber > postTrainingStart
 % Dots = (Pre - single Post trial) / Pre, one per post-training trial, to show the post-training variability
+% Every visit is normalized by its own Pre, then the visits are pooled into groups (one bar per group):
+% bar = mean of the visit deltas in the group, dots = post-training trials of all the visits in the group.
 
-deltaSubject        =   "P-2";
-deltaVisits         =   ["Visit_2", "Visit_4"];        % Visits with the EF force on
+deltaSubject_1      =   "P-2";
+deltaVisits_1       =   ["Visit_2", "Visit_4"];         % Visits with the EF force on
+deltaSubject_2      =   "P-1";
+deltaVisits_2       =   ["Visit_1", "Visit_2"];         % Visits with the EF force on (P-1 had no tDCS)
+
+deltaVisitSubject   =   [repmat(deltaSubject_1, 1, numel(deltaVisits_1)), repmat(deltaSubject_2, 1, numel(deltaVisits_2))];
+deltaVisitName      =   [deltaVisits_1, deltaVisits_2];
+deltaVisitGroup     =   [1, 2, 2, 2];                   % P-2 Visit_2 = EF + tDCS | P-2 Visit_4, P-1 Visit_1, P-1 Visit_2 = EF without tDCS
+deltaSubjects       =   [deltaSubject_1, deltaSubject_2];
+deltaMarkers        =   ["o", "d"];                     % Dot marker of each subject: circle = P-2, diamond = P-1
+
 preTrainingEnd      =   210;                            % Training phase starts here
 postTrainingStart   =   547;                            % Training phase ends here
 nTrialsToAverage    =   5;
 deltaDirections     =   0:3;
-deltaColors         =   [0.45 0.62 0.80; 0 0 0];       % Visit 2 light blue, Visit 4 black
-deltaLabels         =   ["EF + tDCS", "EF + SHAM tDCS"];
+deltaColors         =   [0.45 0.62 0.80; 0 0 0];       % Group 1 light blue, group 2 black
+deltaLabels         =   ["EF + tDCS", "EF (no tDCS)"];
+nVisits             =   numel(deltaVisitName);
+nGroups             =   numel(deltaLabels);
 
-deltaMatrix         =   nan(numel(deltaDirections), numel(deltaVisits));
-roseData            =   cell(1, numel(deltaVisits));       % Data of each visit, kept to draw the Pre / Post rose plots
+visitDelta          =   nan(numel(deltaDirections), nVisits);
+visitDeltaAll       =   nan(1, nVisits);
+roseData            =   cell(1, nGroups);           % Data of all the visits of each group, appended, to draw the Pre / Post rose plots
+preRoseIndex        =   cell(1, nGroups);
+postRoseIndex       =   cell(1, nGroups);
 
-for visitCount = 1:numel(deltaVisits)
+for visitCount = 1:nVisits
 
-    visitData   =   load(initialFolder + "/" + deltaSubject + "/" + deltaSubject + "_" + deltaVisits(visitCount) + ".mat");
-    roseData{visitCount}    =   visitData.Data;
+    subjectName     =   deltaVisitSubject(visitCount);
+    visitFile       =   initialFolder + "/" + subjectName + "/" + subjectName + "_" + deltaVisitName(visitCount) + ".mat";
+    if ~isfile(visitFile)
+        visitFile   =   replace(visitFile, ".mat", "_EF.mat");          % P-1 files are saved as P-1_Visit_X_EF.mat
+    end
+    visitData       =   load(visitFile);
 
-    fprintf('\n%s %s - %s\n', deltaSubject, deltaVisits(visitCount), errorMetric);
+    fprintf('\n%s %s - %s\n', subjectName, deltaVisitName(visitCount), errorMetric);
     [prePost.Pre, prePost.Post, prePost.Delta, prePost.PostTrialDelta, prePost.PreTrialError, prePost.PostTrialError, prePost.PreDataIndex, prePost.PostDataIndex]  =   computeNormalizedDelta(visitData, errorMetric, deltaDirections, preTrainingEnd, postTrainingStart, nTrialsToAverage);
 
-    DeltaAnalysis.(matlab.lang.makeValidName(deltaSubject)).(deltaVisits(visitCount))  =   prePost;
-    deltaMatrix(:, visitCount)                                                          =   prePost.Delta;
+    % All directions pooled, using the same pre / post trials selected above for each direction
+    preAll                          =   [prePost.PreTrialError{:}];
+    postAll                         =   [prePost.PostTrialError{:}];
+    prePost.PreAllDirections        =   mean(preAll);
+    prePost.PostAllDirections       =   mean(postAll);
+    prePost.DeltaAllDirections      =   (prePost.PreAllDirections - prePost.PostAllDirections) / prePost.PreAllDirections;
+    prePost.PostTrialDeltaAll       =   (prePost.PreAllDirections - postAll) ./ prePost.PreAllDirections;
+    prePost.PostTrialDirectionAll   =   repelem(1:numel(deltaDirections), cellfun(@numel, prePost.PostTrialError)');
+    prePost.Group                   =   deltaVisitGroup(visitCount);
+
+    fprintf('%s %s - all directions: pre = %.4f (%d trials), post = %.4f (%d trials), delta = %.3f\n', subjectName, deltaVisitName(visitCount), ...
+        prePost.PreAllDirections, numel(preAll), prePost.PostAllDirections, numel(postAll), prePost.DeltaAllDirections);
+
+    DeltaAnalysis.(matlab.lang.makeValidName(subjectName)).(deltaVisitName(visitCount))    =   prePost;
+    visitDelta(:, visitCount)   =   prePost.Delta;
+    visitDeltaAll(visitCount)   =   prePost.DeltaAllDirections;
+
+    % Append this visit's Data to its group, shifting its Data indexes by the trials already in the group
+    groupCount                  =   deltaVisitGroup(visitCount);
+    indexOffset                 =   numel(roseData{groupCount});
+    roseData{groupCount}        =   [roseData{groupCount}; visitData.Data(:)];
+    preRoseIndex{groupCount}    =   [preRoseIndex{groupCount},  [prePost.PreDataIndex{:}]  + indexOffset];
+    postRoseIndex{groupCount}   =   [postRoseIndex{groupCount}, [prePost.PostDataIndex{:}] + indexOffset];
+end
+
+% Group bars = mean of the visit deltas of the group
+deltaMatrix         =   nan(numel(deltaDirections), nGroups);
+deltaAllDirections  =   nan(1, nGroups);
+for groupCount = 1:nGroups
+    inGroup                         =   deltaVisitGroup == groupCount;
+    deltaMatrix(:, groupCount)      =   mean(visitDelta(:, inGroup), 2);
+    deltaAllDirections(groupCount)  =   mean(visitDeltaAll(inGroup));
+    fprintf('\n%s (%s): delta per direction = [%s], all directions = %.3f\n', deltaLabels(groupCount), ...
+        strjoin(deltaVisitSubject(inGroup) + " " + deltaVisitName(inGroup), ", "), num2str(deltaMatrix(:, groupCount)', '%.3f  '), deltaAllDirections(groupCount));
 end
 
 figure('Name', 'Figure 2 - Normalized Delta');
 deltaDirectionColors    =   EquiDistantColorGenerator(4, 9742);     % Same direction colors as the time-series plot (C)
 deltaBars   =   bar(deltaDirections, deltaMatrix, 'grouped', 'LineWidth', 4);
-for visitCount = 1:numel(deltaVisits)
-    deltaBars(visitCount).FaceColor     =   'flat';
-    deltaBars(visitCount).CData         =   deltaDirectionColors(1:numel(deltaDirections), :);   % Fill = movement direction
-    deltaBars(visitCount).EdgeColor     =   deltaColors(visitCount, :);                          % Contour = visit (tDCS / SHAM)
+for groupCount = 1:nGroups
+    deltaBars(groupCount).FaceColor     =   'flat';
+    deltaBars(groupCount).CData         =   deltaDirectionColors(1:numel(deltaDirections), :);   % Fill = movement direction
+    deltaBars(groupCount).EdgeColor     =   deltaColors(groupCount, :);                          % Contour = group (tDCS / no tDCS)
 end
 yline(0, 'k', 'LineWidth', 2);
 
-% One dot per post-training trial on top of its bar: fill = direction color, outline = visit color
+% One dot per post-training trial on top of its group bar: fill = direction color, outline = group color, marker = subject
 hold on;
-for visitCount = 1:numel(deltaVisits)
-    postTrialDelta  =   DeltaAnalysis.(matlab.lang.makeValidName(deltaSubject)).(deltaVisits(visitCount)).PostTrialDelta;
+for groupCount = 1:nGroups
+    groupVisits     =   find(deltaVisitGroup == groupCount);
     for dirCount = 1:numel(deltaDirections)
-        dotValues   =   postTrialDelta{dirCount};
-        dotSpread   =   linspace(-0.06, 0.06, numel(dotValues)) * (numel(dotValues) > 1);   % small horizontal spread so dots don't stack
-        scatter(deltaBars(visitCount).XEndPoints(dirCount) + dotSpread, dotValues, 450, ...
-            'MarkerFaceColor', deltaDirectionColors(dirCount, :), 'MarkerEdgeColor', deltaColors(visitCount, :), 'LineWidth', 2.5);
+        dotValues   =   [];
+        dotSubject  =   [];
+        for visitCount = groupVisits
+            postTrialDelta  =   DeltaAnalysis.(matlab.lang.makeValidName(deltaVisitSubject(visitCount))).(deltaVisitName(visitCount)).PostTrialDelta{dirCount};
+            dotValues       =   [dotValues, postTrialDelta];
+            dotSubject      =   [dotSubject, repmat(find(deltaSubjects == deltaVisitSubject(visitCount)), 1, numel(postTrialDelta))];
+        end
+        dotSpread   =   linspace(-0.08, 0.08, numel(dotValues)) * (numel(dotValues) > 1);   % small horizontal spread so dots don't stack
+        for subjectCount = 1:numel(deltaSubjects)
+            isSubject   =   dotSubject == subjectCount;
+            if ~any(isSubject), continue; end
+            scatter(deltaBars(groupCount).XEndPoints(dirCount) + dotSpread(isSubject), dotValues(isSubject), 450, 'k', char(deltaMarkers(subjectCount)), ...
+                'MarkerFaceColor', deltaDirectionColors(dirCount, :), 'MarkerEdgeColor', deltaColors(groupCount, :), 'LineWidth', 2.5);
+        end
     end
+end
+markerKey   =   gobjects(1, numel(deltaSubjects));
+for subjectCount = 1:numel(deltaSubjects)
+    markerKey(subjectCount) =   scatter(nan, nan, 450, 'k', char(deltaMarkers(subjectCount)), 'MarkerFaceColor', 'w', 'MarkerEdgeColor', 'k', 'LineWidth', 2.5);
 end
 hold off;
 
@@ -1230,66 +1296,55 @@ set(gca, 'Box', 'off');
 
 xlabel("Movement Direction", 'FontSize', 30, 'FontWeight', 'bold');
 ylabel("(Pre - Post) / Pre", 'FontSize', 30, 'FontWeight', 'bold');
-title(deltaSubject + " - Normalized " + errorMetric + " change after training", 'FontSize', 25, 'FontWeight', 'bold');
+title(strjoin(deltaSubjects, " + ") + " - Normalized " + errorMetric + " change after training", 'FontSize', 25, 'FontWeight', 'bold');
 
 % Colored labels stacked to the right of the last bar group (xlim widened to make room)
 xlim([deltaDirections(1) - 0.5, deltaDirections(end) + 2.2]);
 yLimits     =   ylim;
-for visitCount = 1:numel(deltaVisits)
-    text(deltaDirections(end) + 0.5, yLimits(2) - (visitCount - 1) * 0.1 * diff(yLimits), deltaLabels(visitCount), ...
-        'Color', deltaColors(visitCount, :), 'FontSize', 32, 'FontWeight', 'bold', 'VerticalAlignment', 'top');
+for groupCount = 1:nGroups
+    text(deltaDirections(end) + 0.5, yLimits(2) - (groupCount - 1) * 0.1 * diff(yLimits), deltaLabels(groupCount), ...
+        'Color', deltaColors(groupCount, :), 'FontSize', 32, 'FontWeight', 'bold', 'VerticalAlignment', 'top');
 end
+legend(markerKey, deltaSubjects, 'Location', 'southeast', 'FontSize', 25, 'Box', 'off');
 
-% Rose plots of the trials behind the bars (all 4 directions): one Pre / Post pair per visit, stacked under the labels
-preRoseIndex    =   cell(1, numel(deltaVisits));
-postRoseIndex   =   cell(1, numel(deltaVisits));
-for visitCount = 1:numel(deltaVisits)
-    preRoseIndex{visitCount}    =   [DeltaAnalysis.(matlab.lang.makeValidName(deltaSubject)).(deltaVisits(visitCount)).PreDataIndex{:}];
-    postRoseIndex{visitCount}   =   [DeltaAnalysis.(matlab.lang.makeValidName(deltaSubject)).(deltaVisits(visitCount)).PostDataIndex{:}];
-end
+% Rose plots of the trials behind the bars (all 4 directions, all visits of the group): one Pre / Post pair per group, stacked under the labels
 roseCenters     =   [(deltaDirections(end) + 1.45) * [1; 1], yLimits(2) - [0.38; 0.72] * diff(yLimits)];
 AddPrePostRoseInsets(gcf, ax, roseCenters, 0.13, roseData, preRoseIndex, postRoseIndex, deltaColors);
 
 
-% All directions pooled: one bar per visit, using the same pre / post trials selected above for each direction.
-% Pre = mean of all the selected pre trials, Post = mean of all the selected post trials, DELTA = (Pre - Post) / Pre
-% Dots = (Pre - single Post trial) / Pre, filled with the color of the trial's direction
-deltaAllDirections      =   nan(1, numel(deltaVisits));
-postTrialDeltaAll       =   cell(1, numel(deltaVisits));
-postTrialDirectionAll   =   cell(1, numel(deltaVisits));
-
-for visitCount = 1:numel(deltaVisits)
-    prePost     =   DeltaAnalysis.(matlab.lang.makeValidName(deltaSubject)).(deltaVisits(visitCount));
-    preAll      =   [prePost.PreTrialError{:}];
-    postAll     =   [prePost.PostTrialError{:}];
-
-    prePost.PreAllDirections        =   mean(preAll);
-    prePost.PostAllDirections       =   mean(postAll);
-    prePost.DeltaAllDirections      =   (prePost.PreAllDirections - prePost.PostAllDirections) / prePost.PreAllDirections;
-    DeltaAnalysis.(matlab.lang.makeValidName(deltaSubject)).(deltaVisits(visitCount))  =   prePost;
-
-    deltaAllDirections(visitCount)      =   prePost.DeltaAllDirections;
-    postTrialDeltaAll{visitCount}       =   (prePost.PreAllDirections - postAll) ./ prePost.PreAllDirections;
-    postTrialDirectionAll{visitCount}   =   repelem(1:numel(deltaDirections), cellfun(@numel, prePost.PostTrialError)');
-
-    fprintf('\n%s %s - all directions: pre = %.4f (%d trials), post = %.4f (%d trials), delta = %.3f\n', deltaSubject, deltaVisits(visitCount), ...
-        prePost.PreAllDirections, numel(preAll), prePost.PostAllDirections, numel(postAll), prePost.DeltaAllDirections);
-end
-
+% All directions pooled: one bar per group = mean of the visits' (PreAll - PostAll) / PreAll
+% Dots = (PreAll of the visit - single Post trial) / PreAll of the visit, filled with the color of the trial's direction
 figure('Name', 'Figure 2 - Normalized Delta (All Directions)');
 hold on;
-for visitCount = 1:numel(deltaVisits)
-    bar(visitCount, deltaAllDirections(visitCount), 0.6, 'FaceColor', 'w', 'EdgeColor', deltaColors(visitCount, :), 'LineWidth', 4);
-    dotValues   =   postTrialDeltaAll{visitCount};
-    dotSpread   =   linspace(-0.2, 0.2, numel(dotValues)) * (numel(dotValues) > 1);   % small horizontal spread so dots don't stack
-    scatter(visitCount + dotSpread, dotValues, 450, deltaDirectionColors(postTrialDirectionAll{visitCount}, :), 'filled', ...
-        'MarkerEdgeColor', deltaColors(visitCount, :), 'LineWidth', 2.5);
+for groupCount = 1:nGroups
+    bar(groupCount, deltaAllDirections(groupCount), 0.6, 'FaceColor', 'w', 'EdgeColor', deltaColors(groupCount, :), 'LineWidth', 4);
+
+    dotValues       =   [];
+    dotDirection    =   [];
+    dotSubject      =   [];
+    for visitCount = find(deltaVisitGroup == groupCount)
+        prePost         =   DeltaAnalysis.(matlab.lang.makeValidName(deltaVisitSubject(visitCount))).(deltaVisitName(visitCount));
+        dotValues       =   [dotValues, prePost.PostTrialDeltaAll];
+        dotDirection    =   [dotDirection, prePost.PostTrialDirectionAll];
+        dotSubject      =   [dotSubject, repmat(find(deltaSubjects == deltaVisitSubject(visitCount)), 1, numel(prePost.PostTrialDeltaAll))];
+    end
+    dotSpread   =   linspace(-0.25, 0.25, numel(dotValues)) * (numel(dotValues) > 1);   % small horizontal spread so dots don't stack
+    for subjectCount = 1:numel(deltaSubjects)
+        isSubject   =   dotSubject == subjectCount;
+        if ~any(isSubject), continue; end
+        scatter(groupCount + dotSpread(isSubject), dotValues(isSubject), 450, deltaDirectionColors(dotDirection(isSubject), :), char(deltaMarkers(subjectCount)), 'filled', ...
+            'MarkerEdgeColor', deltaColors(groupCount, :), 'LineWidth', 2.5);
+    end
+end
+markerKey   =   gobjects(1, numel(deltaSubjects));
+for subjectCount = 1:numel(deltaSubjects)
+    markerKey(subjectCount) =   scatter(nan, nan, 450, 'k', char(deltaMarkers(subjectCount)), 'MarkerFaceColor', 'w', 'MarkerEdgeColor', 'k', 'LineWidth', 2.5);
 end
 yline(0, 'k', 'LineWidth', 2);
 hold off;
 
-set(gca, 'XTick', 1:numel(deltaVisits), 'XTickLabel', deltaLabels);
-xlim([0.4, numel(deltaVisits) + 0.6]);
+set(gca, 'XTick', 1:nGroups, 'XTickLabel', deltaLabels);
+xlim([0.4, nGroups + 0.6]);
 ax              =   gca;
 ax.LineWidth    =   3;
 ax.FontSize     =   25;
@@ -1297,14 +1352,96 @@ ax.FontWeight   =   "bold";
 set(gca, 'Box', 'off');
 
 ylabel("(Pre - Post) / Pre", 'FontSize', 30, 'FontWeight', 'bold');
-title(deltaSubject + " - Normalized " + errorMetric + " change after training (all directions)", 'FontSize', 25, 'FontWeight', 'bold');
+title(strjoin(deltaSubjects, " + ") + " - Normalized " + errorMetric + " change after training (all directions)", 'FontSize', 25, 'FontWeight', 'bold');
+legend(markerKey, deltaSubjects, 'Location', 'eastoutside', 'FontSize', 25, 'Box', 'off');     % outside, so it doesn't cover the dots
 
-% Rose plots of the trials behind each bar: Pre / Post pair right above each visit (ylim raised to make room)
+% Rose plots of the trials behind each bar: Pre / Post pair right above each group (ylim raised to make room)
 yLimits     =   ylim;
 ylim([yLimits(1), yLimits(2) + 0.5 * diff(yLimits)]);
-roseCenters     =   [(1:numel(deltaVisits))', (yLimits(2) + 0.14 * diff(yLimits)) * ones(numel(deltaVisits), 1)];
+roseCenters     =   [(1:nGroups)', (yLimits(2) + 0.14 * diff(yLimits)) * ones(nGroups, 1)];
 AddPrePostRoseInsets(gcf, ax, roseCenters, 0.16, roseData, preRoseIndex, postRoseIndex, deltaColors);
 
+
+
+%% Figure 3 - Post-training trials that got worse (after-effect check)
+% Uses the visits and the pre / post trials selected in Figure 2 (run Figure 2 first).
+% Worse trial = post-training trial with a negative dot in Figure 2 (per direction), i.e. its error is bigger
+% than the visit's pre-training mean of that direction.
+% One rose per visit = only the worse post-training trials (colored, labelled with their MovementNumber), drawn on top of
+% the pre-training trials of the same directions (gray), to see if the launch direction changed after training.
+
+worseDirectionColors    =   EquiDistantColorGenerator(4, 9742);     % Same direction colors as DrawRoses
+worseRoseAxes           =   gobjects(1, nVisits);
+worseRoseTitles         =   strings(nVisits, 2);        % Title lines of each rose, drawn after the zoom (see below)
+
+figure('Name', 'Figure 3 - Worse post-training trials', 'Color', 'w');
+worseLayout     =   tiledlayout(2, ceil(nVisits / 2), 'TileSpacing', 'compact', 'Padding', 'compact');
+
+fprintf('\nPost-training trials worse than the pre-training mean of their direction (%s):\n', errorMetric);
+fprintf('%-8s %-9s %-4s %-9s %-9s %-9s %-7s\n', 'Subject', 'Visit', 'Dir', 'Movement', 'PreMean', 'TrialErr', 'Delta');
+
+for visitCount = 1:nVisits
+
+    subjectName     =   deltaVisitSubject(visitCount);
+    groupCount      =   deltaVisitGroup(visitCount);
+    prePost         =   DeltaAnalysis.(matlab.lang.makeValidName(subjectName)).(deltaVisitName(visitCount));
+    visitFile       =   initialFolder + "/" + subjectName + "/" + subjectName + "_" + deltaVisitName(visitCount) + ".mat";
+    if ~isfile(visitFile)
+        visitFile   =   replace(visitFile, ".mat", "_EF.mat");          % P-1 files are saved as P-1_Visit_X_EF.mat
+    end
+    visitData       =   load(visitFile, 'Data');
+
+    % Worse post-training trials, and the pre-training trials of the same directions
+    worseIndex      =   [];
+    worsePreIndex   =   [];
+    for dirCount = 1:numel(deltaDirections)
+        isWorse     =   prePost.PostTrialDelta{dirCount} < 0;
+        if ~any(isWorse), continue; end
+        worseIndex      =   [worseIndex, prePost.PostDataIndex{dirCount}(isWorse)];
+        worsePreIndex   =   [worsePreIndex, prePost.PreDataIndex{dirCount}];
+        for trialCount = find(isWorse)
+            fprintf('%-8s %-9s %-4d %-9d %-9.4f %-9.4f %-7.3f\n', subjectName, deltaVisitName(visitCount), deltaDirections(dirCount), ...
+                visitData.Data{prePost.PostDataIndex{dirCount}(trialCount)}.MovementNumber, prePost.Pre(dirCount), ...
+                prePost.PostTrialError{dirCount}(trialCount), prePost.PostTrialDelta{dirCount}(trialCount));
+        end
+    end
+    nPostTrials     =   numel([prePost.PostDataIndex{:}]);
+    visitTitle      =   subjectName + " " + replace(deltaVisitName(visitCount), "_", " ") + " (" + deltaLabels(groupCount) + ")";
+
+    % Worse post-training trials (colored) over the pre-training trials of the same directions (gray)
+    worseRoseAxes(visitCount)   =   nexttile(worseLayout);
+    DrawRoses(worseRoseAxes(visitCount), visitData.Data, worsePreIndex, [], 1);                 % empty 4th input = gray trajectories, no force arrows
+    DrawRoses(worseRoseAxes(visitCount), visitData.Data, worseIndex, 1, 1);                     % any 4th / 5th input = colored by direction, no force arrows
+    for trialCount = 1:numel(worseIndex)
+        trial           =   visitData.Data{worseIndex(trialCount)};
+        launchPosition  =   trial.GlobalPosition(trial.TherapyWindowIndex(end), :) - trial.GlobalPosition(1, :);     % end of the launch window, same frame as DrawRoses
+        text(worseRoseAxes(visitCount), launchPosition(1), launchPosition(3), launchPosition(2), " " + string(trial.MovementNumber), ...
+            'Color', worseDirectionColors(trial.MovementDirection + 1, :), 'FontSize', 13, 'FontWeight', 'bold');
+    end
+    worseRoseTitles(visitCount, :)  =   [visitTitle, "Post - worse only (" + numel(worseIndex) + " of " + nPostTrials + ")"];
+end
+
+for roseCount = 1:numel(worseRoseAxes)
+    axis(worseRoseAxes(roseCount), "equal");
+    axis(worseRoseAxes(roseCount), "off");
+    view(worseRoseAxes(roseCount), 26, 26);
+end
+% Same scale for every rose, so the visits can be compared
+allLimits   =   [vertcat(worseRoseAxes.XLim), vertcat(worseRoseAxes.YLim), vertcat(worseRoseAxes.ZLim)];
+set(worseRoseAxes, 'XLim', [min(allLimits(:, 1)), max(allLimits(:, 2))], 'YLim', [min(allLimits(:, 3)), max(allLimits(:, 4))], 'ZLim', [min(allLimits(:, 5)), max(allLimits(:, 6))]);
+for roseCount = 1:numel(worseRoseAxes)
+    camzoom(worseRoseAxes(roseCount), 1.8);     % the 3D box of an equal-axis rose is much bigger than the trajectories, zoom in to fill the tile
+end
+% Titles as text boxes pinned to the top of each tile: a normal axes title moves with camzoom and ends up off the tile
+drawnow;
+for visitCount = 1:nVisits
+    tilePosition    =   worseRoseAxes(visitCount).Position;
+    annotation(gcf, 'textbox', [tilePosition(1), tilePosition(2) + tilePosition(4) - 0.05, tilePosition(3), 0.05], 'String', worseRoseTitles(visitCount, :), ...
+        'Color', deltaColors(deltaVisitGroup(visitCount), :), 'FontSize', 16, 'FontWeight', 'bold', 'EdgeColor', 'none', ...
+        'HorizontalAlignment', 'center', 'VerticalAlignment', 'top');
+end
+title(worseLayout, "Post-training trials with a bigger " + errorMetric + " than the pre-training mean (launch window)", 'FontSize', 20, 'FontWeight', 'bold');
+subtitle(worseLayout, "Gray = pre-training trials     Colored = post-training trials that got worse (labelled with movement number)", 'FontSize', 16);
 
 
 %% External Functions

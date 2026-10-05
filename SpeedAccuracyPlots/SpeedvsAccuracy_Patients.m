@@ -6,20 +6,23 @@ close all; clear all; clc;
  %% Select the subjects' ID to be compared
 
 
-% subjectsList            =   ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28"];
+% subjectsList            =   ["P-2"];
 subjectsList            =   ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", "E-42", "E-44", "E-47", "E-56", "E-69", "E-81", "E-91", "E-93"];
 
-% subjectsList    =  ["P-2"];
 % EF_First_Group    =   ["E-5", "E-21", "E-25"];
 
 % SHAM_First_Group  =   ["E-16", "E-26", "E-28"];
 
 
 treatmentVisit  =  ["Visit_1", "Visit_2", "Visit_3", "Visit_4", "Visit_5", "Visit_6", "Visit_7", "Visit_8"];
-% treatmentVisit          =   ["Visit_1", "Visit_2", "Visit_3"];
+% treatmentVisit          =   ["Visit_2", "Visit_4"];
 
 visitsToCompare             =   [treatmentVisit(2), treatmentVisit(5), treatmentVisit(8)];
-% visitsToCompare     =   [treatmentVisit(1), treatmentVisit(2), treatmentVisit(3)];
+% visitsToCompare     =   [treatmentVisit(1), treatmentVisit(2)];
+
+
+ImprovedAccuracyComparison  =   ["Treatment_1_vs_4_SHAM", "Treatment_1_vs_4_EF", "Visit_1_vs_8"];
+% ImprovedAccuracyComparison  =   ["Visit_1_vs_4"];
 
 
 % Every metric listed here is extracted once and stored in the "Error" struct
@@ -706,7 +709,6 @@ if SHOW_WRONG_ONSET_IN_TITLE
 end
 % ───────────────────────────────────────────────────────────────────────────
 
-ImprovedAccuracyComparison  =   ["Treatment_1_vs_4_SHAM", "Treatment_1_vs_4_EF", "Visit_1_vs_8"];
 % ForceOnComparison   =   ["ImprovedAccuracyForceOn", "ImprovedAccuracyForceOff", "ImprovedAccuracyBaselineIntermExp"];
 % directionsToCompare =   ["Dir0", "Dir1", "Dir2", "Dir3"];
 xLines              =   [lowSpeedThreshold, highSpeedThreshold];
@@ -833,6 +835,23 @@ graphCount      =   1;
 allMainAxes     =   [];
 
 for count = subjectsList
+
+    % Only two visits to compare (e.g. P-2: Visit_2 vs Visit_4, both EF): one plot, first visit vs second.
+    % The EF-first / SHAM-first blocks and the Visit_1 vs Visit_8 block below need three visits.
+    if numel(visitsToCompare) == 2
+        efTitle = ['Error Field' WrongOnsetTitleSuffix(onsetResults, char(count), ...
+                                                       VisitNumberFromName(visitsToCompare(1)), ...
+                                                       VisitNumberFromName(visitsToCompare(2)))];
+        [hAx, insetAxes1, insetAxes2, baselineRegressionLineX, baselineRegressionLineY]   =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(1))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(1))).Error, rowNumber, colNumber, 1, efTitle, 'Speed', 'Accuracy', xLines, 1, 'filled', 1, 'Baseline', EF_globalPos_IntermittentExp_Dir0, EF_globalPos_IntermittentExp_Dir1, EF_globalPos_IntermittentExp_Dir2, EF_globalPos_IntermittentExp_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_IntermittentExp_Dir0, EF_globalStd_IntermittentExp_Dir1, EF_globalStd_IntermittentExp_Dir2, EF_globalStd_IntermittentExp_Dir3, xLimits, yLimits);
+        hAxSaved_1                  =   hAx;
+        insetAxes1Saved_1           =   insetAxes1;
+        insetAxes2Saved_1           =   insetAxes2;
+        allMainAxes(graphCount)     =   hAx;
+        graphCount                  =   graphCount + 1;
+        [~, ~, ~, ~, ~, improvedAccuracy]             =   SpeedAccuracyCupolasSubplotMinimal(SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Speed, SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(visitsToCompare(2))).Error, rowNumber, colNumber, 1, efTitle, 'Speed', 'Accuracy', xLines, 2, 'filled', 1, 'Interm Exp', EF_globalPos_PostTraining_Dir0, EF_globalPos_PostTraining_Dir1, EF_globalPos_PostTraining_Dir2, EF_globalPos_PostTraining_Dir3, idealTrajectory0, idealTrajectory1, idealTrajectory2, idealTrajectory3, EF_globalStd_PostTraining_Dir0, EF_globalStd_PostTraining_Dir1, EF_globalStd_PostTraining_Dir2, EF_globalStd_PostTraining_Dir3, xLimits, yLimits, hAxSaved_1, insetAxes1Saved_1, insetAxes2Saved_1, baselineRegressionLineX, baselineRegressionLineY);
+        SingleSubjectProcessedData.(matlab.lang.makeValidName(count)).(matlab.lang.makeValidName(ImprovedAccuracyComparison(1))) = improvedAccuracy;
+        continue
+    end
 
     % Visit_4 vs Visit_1 SHAM TREATMENT
     if ismember(count, EF_First_Group)
@@ -1069,7 +1088,13 @@ text(0.005, postEvaluationCoeff(1) * 0 + postEvaluationCoeff(2) + 0.4, 'Last Vis
 % compared changes: the first one is Visit_2 (baseline) vs Visit_5 (post
 % evaluation), the second one Visit_5 (baseline) vs Visit_8 (post evaluation).
 % Each row of copulaVisitPairs is [baselineVisit, postEvaluationVisit].
-copulaVisitPairs    =   [treatmentVisit(2), treatmentVisit(5); treatmentVisit(5), treatmentVisit(8)];
+% Needs the 8-visit stroke protocol; with fewer visits (e.g. P-2) the section is skipped.
+if numel(treatmentVisit) >= 8
+    copulaVisitPairs    =   [treatmentVisit(2), treatmentVisit(5); treatmentVisit(5), treatmentVisit(8)];
+else
+    copulaVisitPairs    =   strings(0, 2);
+    fprintf('\nCopulas section skipped: it needs 8 treatment visits, treatmentVisit has %d.\n', numel(treatmentVisit));
+end
 
 for pairCount = 1:size(copulaVisitPairs, 1)
 
@@ -1289,7 +1314,12 @@ end
 %% Raincloud plot for improvement area distributions for "SHAM" vs "EF" vs "Visit 1-8"
 
 
-RainCloudDistribution_Patients(SingleSubjectProcessedData, 'true', errorMetric, 1, ImprovedAccuracyComparison, SHAM_First_Group, EF_First_Group);
+% Compares the SHAM-first and EF-first groups over the three comparisons; skipped with two visits (e.g. P-2)
+if numel(visitsToCompare) >= 3
+    RainCloudDistribution_Patients(SingleSubjectProcessedData, 'true', errorMetric, 1, ImprovedAccuracyComparison, SHAM_First_Group, EF_First_Group);
+else
+    fprintf('\nRaincloud (SHAM vs EF vs Visit 1-8) skipped: it needs 3 visits in visitsToCompare.\n');
+end
 
 
 
@@ -1309,7 +1339,11 @@ cd(functionsFolder);
 
 
 
-RainCloudDistributionTwoPhases_Patients(SingleSubjectProcessedData, false, errorMetric, ImprovedAccuracyComparison, SHAM_First_Group, EF_First_Group);
+if numel(visitsToCompare) >= 3
+    RainCloudDistributionTwoPhases_Patients(SingleSubjectProcessedData, false, errorMetric, ImprovedAccuracyComparison, SHAM_First_Group, EF_First_Group);
+else
+    fprintf('Raincloud (SHAM vs EF) skipped: it needs 3 visits in visitsToCompare.\n');
+end
 
 
 

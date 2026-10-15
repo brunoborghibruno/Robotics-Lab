@@ -4,8 +4,8 @@
 
 %% Select the subjects' ID to be compared
 
-subjectsList    =  ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", "E-42", "E-44", "E-47", "E-56", "E-69", "E-81", "E-91", "E-93"];
-maxSamples      =  1700000;                   % is the amount of samples required to clip the first 7 hours of recording
+subjectsList   =  ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", "E-42", "E-44", "E-47", "E-56", "E-69", "E-81", "E-91", "E-93"];
+maxSamples     =  1700000;                   % is the amount of samples required to clip the first 7 hours of recording
 
 
 

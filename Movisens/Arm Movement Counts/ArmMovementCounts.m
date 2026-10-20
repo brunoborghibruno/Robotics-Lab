@@ -8,9 +8,12 @@
 % int16, little-endian, 3 interleaved axes, 64 Hz, 0.07 deg/s per count (unisens.xml and Move 4 datasheet).
 % maxSamples = "all" uses the whole recording; a number uses only the first maxSamples (1700000 = 7.4 h, the same
 % window as SPARC_Analysis.m and SignalComparison_FFT.m), and a visit shorter than that is skipped (NaN).
+% With usePressure = true the window starts when the patient leaves the building (pressureReading.m), not at the start
+% of the recording, so the lab time is left out.
 %
 % Method, for each visit (steps 1-4 are the same as SPARC_Analysis.m):
-%   1. Read angularrate.bin and convert counts to deg/s.
+%   1. Read angularrate.bin and convert counts to deg/s. If usePressure, find the exit time with the barometer
+%      (pressureReading.m: first pressure rise > 4 hPa within 3 min, the elevator down) and keep the data from then on.
 %   2. Subtract each axis's median (gyroscope bias, ~1-3 deg/s).
 %   3. Angular speed = norm of the 3 axes, low-passed at 10 Hz (4th-order Butterworth, filtfilt).
 %   4. Movement events: speed above threshold/3 (10 deg/s), reaching threshold (30 deg/s), lasting 0.5-10 s.
@@ -20,12 +23,15 @@
 %        intensity     = median over events of the event's peak speed (how hard the arm moves, deg/s)
 %
 % Output:
-%   countsTable : Subject, Visit, hours, eventsPerHour, activePercent, intensity.
+%   exitTable   : Subject, Visit, minutes from recording start to the exit, size of the pressure rise (NaN = no rise
+%                 found, window starts at minute 0). Only with usePressure = true.
+%   countsTable : Subject, Visit, startHour, hours, eventsPerHour, activePercent, intensity.
 %   Figure 1    : each metric per subject, one bar per visit.
 %   Figure 2    : SHAM vs EF raincloud of the changes (later - earlier visit, positive = more use), drawn like the
 %                 raincloud in SPARC_Analysis.m. Only subjects with both changes are shown, so both pairs have the
 %                 same subjects. Dot fill: dark blue if either recording of that change started after
-%                 lateHour (15:00), so its window covers evening/night; dark yellow otherwise (startTimeColors).
+%                 lateHour (16:00), so its window covers evening/night; dark yellow otherwise (startTimeColors).
+%                 This uses the recording start time, not the exit time.
 %   Console     : per metric, paired Wilcoxon signed-rank of each subject's EF change vs its SHAM change.
 %
 % Limits: one wrist only, so no use ratio between the two arms. Daily activity varies from day to day for
@@ -44,8 +50,10 @@
 
 %% Settings
 
-maxSamples       =  1700000;    % "all" = whole recording (any length); a number = first maxSamples only.
+maxSamples       =  5529600;    % "all" = whole recording (any length); a number = first maxSamples only.
                                 % 1700000 samples / 64 Hz = 26562 s = 7.4 h, the same window as SPARC_Analysis.m
+usePressure      =  false;       % true = window starts when the patient leaves the building (pressureReading.m);
+                                % false = pressure not used at all, window starts at the start of the recording
 
 subjectsList     =  ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", "E-42", "E-44", "E-47", "E-56", "E-69", "E-81", "E-91", "E-93"];
 visits           =  [1, 4, 7];
@@ -58,7 +66,7 @@ minDur           =  0.5;        % s, shortest event kept
 maxDur           =  10;         % s, longest event kept
 activeThreshold  =  10;         % deg/s: above this the wrist counts as moving (active time)
 startTimeColors  =  true;       % true = Figure 2 dots filled by recording start time; false = white dots
-lateHour         =  15;         % recordings that started after this hour (15 = 3 pm) are marked in Figure 2
+lateHour         =  16;         % recordings that started after this hour (16 = 4 pm) are marked in Figure 2
 
 % EF-first subjects, as in SignalComparison_FFT.m and SPARC_Analysis.m. A NEW SUBJECT MUST BE ADDED HERE if it
 % started with EF. E-47's V6 EF inside a SHAM week counts as SHAM.
@@ -80,6 +88,8 @@ eventsPerHour  =  NaN(nSubjects, length(visits));
 activePercent  =  NaN(nSubjects, length(visits));
 intensity      =  NaN(nSubjects, length(visits));
 startHour      =  NaN(nSubjects, length(visits));   % clock time when the recording started, in hours (15.5 = 15:30)
+exitMinute     =  NaN(nSubjects, length(visits));   % minutes from recording start to leaving the building
+jumpHPa        =  NaN(nSubjects, length(visits));   % pressure rise at the exit (hPa)
 
 for s = 1:nSubjects
     for v = 1:length(visits)
@@ -94,6 +104,10 @@ for s = 1:nSubjects
         startHour(s, v)  =  hour(startTime) + minute(startTime)/60 + second(startTime)/3600;
 
         omega  =  ReadGyroBin(visitFolder) * gyroLSB;          % N x 3, deg/s
+        if usePressure
+            [exitMinute(s, v), jumpHPa(s, v)]  =  pressureReading(visitFolder);
+            omega  =  omega(exitMinute(s, v)*60*fs + 1 : end, :);   % drop the time before leaving the building
+        end
         if ~strcmp(maxSamples, "all")
             if size(omega, 1) < maxSamples
                 fprintf('Skipped %s: only %d samples\n', visitFolder, size(omega, 1));
@@ -115,6 +129,13 @@ for s = 1:nSubjects
         activePercent(s, v)  =  100 * mean(speed > activeThreshold);
         intensity(s, v)      =  median(peakSpeed);
     end
+end
+
+if usePressure
+    exitTable  =  table(repelem(subjectsList', length(visits)), repmat(visits', nSubjects, 1), reshape(exitMinute', [], 1), ...
+                        reshape(jumpHPa', [], 1), 'VariableNames', {'Subject', 'Visit', 'exitMinute', 'jumpHPa'});
+    fprintf('\nLeaving the building (pressureReading.m). jumpHPa = NaN: no rise found, window starts at minute 0.\n');
+    disp(exitTable)
 end
 
 countsTable  =  table(repelem(subjectsList', length(visits)), repmat(visits', nSubjects, 1), reshape(startHour', [], 1), ...

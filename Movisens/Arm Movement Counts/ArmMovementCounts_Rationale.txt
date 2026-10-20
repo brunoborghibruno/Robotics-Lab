@@ -1,0 +1,35 @@
+ARM MOVEMENT COUNTS - rationale (Bruno Borghi, October 2026)
+
+Why not smoothness
+SPARC (smoothness) from the same free-living wrist recordings did not change across Visits 1, 4 and 7, and EF
+weeks did not differ from SHAM weeks (paired Wilcoxon p = 0.43, 14 subjects). At home, a "movement" can be
+brushing teeth, walking or gesturing, and that mix changes from day to day more than movement quality does.
+These are also chronic patients, who usually have little room left to change in smoothness.
+Details in ../SPARC Analysis/.
+
+Why "how much and how hard"
+Studies of daily-life arm use after stroke mostly measure how often, how long and how strongly the affected arm
+moves, not how smoothly (Lang lab: hours of use, movement magnitude, use ratio). The question that matters for
+the patient is whether therapy makes them use the affected arm more in daily life. Gains in the clinic do not
+always reach daily life (Waddell et al. 2017), so this is a separate, harder test of the treatment.
+The sensor is on the affected wrist, so a higher value means more use of the affected arm. With one wrist
+only, the use ratio between the two arms cannot be computed.
+
+How we get there
+The gyroscope gives the wrist's angular speed directly (no gravity to remove, unlike the accelerometer).
+For each visit, in the first 7.4 h of recording (maxSamples, can be set to "all"):
+  1. Convert to deg/s (0.07 deg/s per count), remove each axis's bias (median), take the speed (norm of the
+     3 axes) and low-pass it at 10 Hz.
+  2. Find the movement events (as in SPARC_Analysis.m): speed reaches 30 deg/s, edges at 10 deg/s, 0.5-10 s long.
+  3. Three numbers:
+       events per hour  = how often the arm moves
+       active time (%)  = share of time with speed above 10 deg/s (how long it moves)
+       intensity        = median peak speed of the events in deg/s (how hard it moves)
+  4. Change between visits (Visit 4 - Visit 1, Visit 7 - Visit 4; positive = more use). Each subject has one
+     EF week and one SHAM week, so each subject's EF change is compared with its own SHAM change
+     (paired Wilcoxon signed-rank).
+
+Main sources
+  Lang CE et al. J Vis Exp 2017 (method for wrist accelerometry in daily life).
+  Bailey RR, Klaesner JW, Lang CE. Neurorehabil Neural Repair 2015 (real-world arm activity after stroke).
+  Waddell KJ et al. Neurorehabil Neural Repair 2017 (clinic gains vs daily-life use).

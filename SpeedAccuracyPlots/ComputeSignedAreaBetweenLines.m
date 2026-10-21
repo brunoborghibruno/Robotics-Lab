@@ -224,37 +224,22 @@ end
 
 
 function signType = ImprovementAreaSign(p1, p2, p3, p4)
+% Sign of the Improvement Area. p1-p2 = segment of the line being analysed (new phase), p3-p4 = segment of the
+% reference line (baseline). The normal to the baseline goes through the baseline middle point, the line parallel
+% to the baseline goes through the middle point of the new phase; where they cross is the new phase moved onto
+% the normal. If the cross point is farther from the origin than the baseline middle point, the area is positive.
 
-segmentVector   =   p2 - p1;        % create the vector that goes through the first regression line
-normalVector    =   [-segmentVector(2), segmentVector(1)];  % find the vector with direction normal to the first regression line (segment vector)
-normalVector    =   normalVector / vecnorm(normalVector);   % normalize it
-m_normal        =   normalVector(2) / normalVector(1);
-mean_12         =   [mean([p1(1), p2(1)]), mean([p1(2), p2(2)])];   % find the points where you want the perpendicular line to pass through (middle point of first regression line)
-c_12            =   mean_12(2) - m_normal * mean_12(1); % find the y-intercept
-perpFunction    =   @(x) m_normal * x + c_12;  % create the anonymous function
+baselineVector  =   (p4 - p3) / vecnorm(p4 - p3);               % direction of the baseline line
+normalVector    =   [-baselineVector(2), baselineVector(1)];    % normal to the baseline line
+mean_34         =   (p3 + p4) / 2;                              % middle point of the baseline line
+mean_12         =   (p1 + p2) / 2;                              % middle point of the new-phase line
 
-x_Values        =   linspace(0, max([p1(1), p2(1), p3(1), p4(1)]), 100);
-y_PerpValues    =   perpFunction(x_Values);
+% Cross point of the normal (through mean_34) and the parallel (through mean_12)
+crossPoint      =   mean_34 + dot(mean_12 - mean_34, normalVector) * normalVector;
 
-% same thing but now finding the vector parallel to the first regression line and passing throuhg the second regression line middle point, to then check for intersection
-segmentVector       =   segmentVector / vecnorm(segmentVector);
-m_parallel          =   segmentVector(2) / segmentVector(1);
-mean_34             =   [mean([p3(1), p4(1)]), mean([p3(2), p4(2)])];
-c_34                =   mean_34(2) - m_parallel * mean_34(1);
-parallelFunction    =   @(x) m_parallel * x + c_34;
-
-y_ParallValues      =   parallelFunction(x_Values);
-
-% find the cross values
-[x_cross, y_cross] = findIntersections(x_Values, y_PerpValues, x_Values, y_ParallValues);
-
-
-if (norm(mean_12) < norm([x_cross, y_cross]))
-    signType = -1;
-else
+if (norm(crossPoint) > norm(mean_34))
     signType = 1;
+else
+    signType = -1;
 end
-
 end
-
-

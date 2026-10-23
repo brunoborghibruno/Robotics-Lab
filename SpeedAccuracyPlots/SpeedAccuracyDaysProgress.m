@@ -17,7 +17,7 @@ subjectsList        =   ["E-5", "E-16", "E-21", "E-25", "E-26", "E-28", "E-38", 
 visits              =   1:9;
 trainingVisits      =   2:7;        % visits with a Post-Training phase (the wings)
 
-referenceVisit      =   "previous";     % "baseline" = every visit vs Visit 1; "previous" = every visit vs the visit before
+referenceVisit      =   "baseline";     % "baseline" = every visit vs Visit 1; "previous" = every visit vs the visit before
 
 errorMetric         =   "MaximumErrorAmplitude";
 % errorMetric         =   "MaximumPerpendicularError";
@@ -28,6 +28,7 @@ fullRange           =   1;                  % 1 = area over the full speed range
 
 visitLabels         =   {"Baseline", "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "Post", "FollowUp"};
 verticalLines       =   [1.5, 4.5, 7.5, 8.5];
+showPrePostLines    =   false;       % false = hide the dotted IE -> Post-Training lines (the wings)
 
 %% Load speed and error of every visit and fit the speed-accuracy lines
 
@@ -125,7 +126,13 @@ DaysProgressPlot(ax, {padRows(beginArea, efRows); padRows(beginArea, shamRows)},
                      {padRows(endArea, efRows); padRows(endArea, shamRows)}, ...
                      {2:4; 5:7}, verticalLines, "Improvement Area (vs " + referenceLabel + ")", visitLabels, [], [], ...
                      {"EF first (" + numel(efRows) + ")"; "SHAM first (" + numel(shamRows) + ")"});
-yline(ax, 0, '--', 'Color', [0.4 0.4 0.4], 'HandleVisibility', 'off');
+if ~showPrePostLines
+    delete(findobj(ax, 'Type', 'line', 'LineStyle', ':'));
+end
+% Thicker traces for both groups (xline/yline are not 'line' objects, so they keep their width)
+for traceLine = findobj(ax, 'Type', 'line')'
+    traceLine.LineWidth =   1.5 * traceLine.LineWidth;
+end
 title(ax, "Speed-accuracy Improvement Area vs " + referenceLabel + " (" + errorMetric + ")");
 
 
